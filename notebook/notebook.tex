@@ -63,14 +63,14 @@
 
 % Short headings should be running head and authors last names
 
-\ShortHeadings{Fast model building notes}{Lloyd et alia}
+\ShortHeadings{Auto stat basic architecture}{Lloyd et alia}
 \firstpageno{1}
 
 \begin{document}
 
 \lstset{language=Lisp,basicstyle=\ttfamily\footnotesize} 
 
-\title{Fast construction of Gaussian process models}
+\title{Designing an API for the automatic statistician}
 
 \author{\name James Robert Lloyd \email jrl44@cam.ac.uk \\
        \addr 
@@ -95,6 +95,60 @@ Abstract
 \section{Introduction}
 
 Intro
+
+\section{Simplifying assumptions}
+
+We will initially make many simplifying assumptions with a view to relaxing them as we expand the basic architecture:
+
+\begin{itemize}
+  \item Data assumed to be an exchangeable sequence of vectors
+  \item Only building conditional models of a single output
+  \item Minimal user interaction
+  \item \dots
+\end{itemize}
+
+\section{Examples of desired functionality}
+
+This describes tasks the system should be able to perform.
+Some are within the scope of the current simplifying assumptions, others will require additional interfaces / messaging protocols.
+
+\subsection{Cross validated model selection}
+
+\subsection{Bayesian model selection}
+
+\subsection{Bayesian model averaging}
+
+\subsection{Bayesian optimisation of model selection}
+
+\subsection{Cross vaidated ensemble construction}
+
+\section{Other desiderata}
+
+\begin{itemize}
+  \item Concurrency
+  \item Language independence
+  \item Scalability
+  \item \dots
+\end{itemize}
+
+\section{Definition of architecture}
+
+Concurrency suggests a framework involving actors passing messages to each other.
+The messages should be language independent, suggesting perhaps an XML syntax of messages?
+
+\subsection{Overview}
+
+\subsection{Minimum messages}
+
+Things like start, pause, clear, load.
+
+\subsection{Optional messages}
+
+Things like returning models or cross validated errors.
+
+\subsection{Future messages}
+
+Types of message that might be useful in future versions of the system. 
 
 \newpage
 
