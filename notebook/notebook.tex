@@ -1,0 +1,108 @@
+\documentclass[twoside,11pt]{article}
+
+% Any additional packages needed should be included after jmlr2e.
+% Note that jmlr2e.sty includes epsfig, amssymb, natbib and graphicx,
+% and defines many common macros, such as 'proof' and 'example'.
+%
+% It also sets the bibliographystyle to plainnat; for more information on
+% natbib citation styles, see the natbib documentation, a copy of which
+% is archived at http://www.jmlr.org/format/natbib.pdf
+
+\usepackage{jmlr2e}
+
+\usepackage{listings}
+%\usepackage{algorithm}
+%\usepackage{algorithmic}
+\usepackage{amssymb,amsmath}
+%\usepackage{graphicx}
+\usepackage{preamble}
+%\usepackage{natbib}
+%%%% REMEMBER ME!
+%\usepackage[draft]{hyperref}
+\usepackage{hyperref}
+\usepackage{color}
+\usepackage{url}
+%\usepackage{wasysym}
+%\usepackage{subfigure}
+%\usepackage{tabularx}
+\usepackage{booktabs}
+%\usepackage{bm}
+%\newcommand{\theHalgorithm}{\arabic{algorithm}}
+\definecolor{mydarkblue}{rgb}{0,0.08,0.45}
+\hypersetup{ %
+    pdftitle={},
+    pdfauthor={},
+    pdfsubject={},
+    pdfkeywords={},
+    pdfborder=0 0 0,
+    pdfpagemode=UseNone,
+    colorlinks=true,
+    linkcolor=mydarkblue,
+    citecolor=mydarkblue,
+    filecolor=mydarkblue,
+    urlcolor=mydarkblue,
+    pdfview=FitH}
+
+\setlength{\marginparwidth}{0.6in}
+\input{include/commenting.tex}
+
+%% For submission, make all render blank.
+%\renewcommand{\LATER}[1]{}
+%\renewcommand{\fLATER}[1]{}
+%\renewcommand{\TBD}[1]{}
+%\renewcommand{\fTBD}[1]{}
+%\renewcommand{\PROBLEM}[1]{}
+%\renewcommand{\fPROBLEM}[1]{}
+%\renewcommand{\NA}[1]{#1}  %% Note, NA's pass through!
+
+% Definitions of handy macros can go here
+
+% Heading arguments are {volume}{year}{pages}{submitted}{published}{author-full-names}
+
+%\jmlrheading{Volume}{Year}{Pages}{Submitted}{Published}{James Robert Lloyd}
+
+% Short headings should be running head and authors last names
+
+\ShortHeadings{Fast model building notes}{Lloyd et alia}
+\firstpageno{1}
+
+\begin{document}
+
+\lstset{language=Lisp,basicstyle=\ttfamily\footnotesize} 
+
+\title{Fast construction of Gaussian process models}
+
+\author{\name James Robert Lloyd \email jrl44@cam.ac.uk \\
+       \addr 
+       Machine Learning Group \\
+       Department of Engineering\\
+       University of Cambridge\\
+       \AND
+       \name Others\dots}
+
+\editor{Editor}
+
+\maketitle
+
+\begin{abstract}
+Abstract
+\end{abstract}
+
+%\begin{keywords}
+%  Gaussian processes
+%\end{keywords}
+
+\section{Introduction}
+
+Intro
+
+\newpage
+
+%\appendix
+%\section*{Appendix A.}
+%Appendix
+
+\vskip 0.2in
+\bibliography{library}
+
+\end{document}
