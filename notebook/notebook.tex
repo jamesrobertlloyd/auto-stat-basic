@@ -131,17 +131,41 @@ A potential flow could be
   \item Manager creates data set object, cross validation folds object and scoring object
   \item Manager creates several expert objects which are given access to the data, cross validation object and scoring object
   \item Experts train models (on full data) and calculate cross validated performance and store this in local knowledge bases
-  \item Experts return models and cross validation performance (a tuple of model, data set, cross validation object, method of scoring, score)
+  \item Experts return models and cross validation performance (a tuple of label (\eg `cross validated score'), model, data set, cross validation object, method of scoring, score)
   \item Manager collates facts about cross validated performance and selects a model on the basis of these facts
+  \item Manager asks the expert who created the model to describe it
 \end{itemize}
 
 \subsection{Bayesian model selection}
 
+Much like the above, but models are scored by marginal likelihoods
+
 \subsection{Bayesian model averaging}
 
-\subsection{Bayesian optimisation of model selection}
+Much like the above, but a Bayesian model average model object is created
 
-\subsection{Cross vaidated ensemble construction}
+\subsection{Bayesian / model-based optimisation of model selection}
+
+This will require access to parameters of models.
+A potential flow could be
+\begin{itemize}
+  \item Same setup as before but experts are given a small time budget before returning models and cross validated errors
+  \item Manager then selects models and parameters to try based on cross validation results and model based optimisation algorithm
+  \item Manager modifies the models parameters, computes cross validated errors (this will require these types of model to have `train' and `predict' procedures)
+\end{itemize}
+
+This raises the question of to what extent statisticians `own' models or whether they just create them.
+I think the answer is the latter but I'm not certain - only the creator of a model would know special ways of falsifying it potentially.
+
+Note also that `parameters' have to be high level / hyper parameters so that cross validation is appropriate here.
+
+\subsection{Cross validated ensemble construction}
+
+\subsection{Model criticism / checking}
+
+After constructing / selecting a model we need to be able to attempt to falsify it.
+This could be done by asking the expert who created the model (if appropriate) to perform model criticism on previously held out data.
+We might also ask this to be done by a separate model criticism expert.
 
 \section{Other desiderata}
 
@@ -160,13 +184,31 @@ The messages should be language independent, suggesting perhaps an XML syntax of
 
 \subsection{Overview}
 
+Potential types of objects
+\begin{itemize}
+  \item Statisiticians
+  \begin{itemize}
+    \item Managers
+    \item Model builders (experts)
+    \item Criticisers / falsificationists
+  \end{itemize}
+  \item Data
+  \begin{itemize}
+    \item Cross validation splits of data
+  \end{itemize}
+  \item Scoring objects (\eg mean absolute error calculator)
+  \item Models - these might just be very specific statisticians 
+\end{itemize}
+
 \subsection{Minimum messages}
 
 Things like start, pause, clear, load.
 
+Should experts have a `goal' (\eg minimise a particular score?) - and therefore this would need to be set.
+
 \subsection{Optional messages}
 
-Things like returning models or cross validated errors.
+Things like returning models or cross validated errors or other facts.
 
 \subsection{Future messages}
 
