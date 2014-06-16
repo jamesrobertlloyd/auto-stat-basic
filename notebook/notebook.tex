@@ -80,12 +80,12 @@
        \AND
        \name Others\dots}
 
-\editor{Editor}
+\editor{Not applicable}
 
 \maketitle
 
 \begin{abstract}
-Abstract
+A discussion of potential software architectures for the automatic statistician.
 \end{abstract}
 
 %\begin{keywords}
@@ -94,7 +94,12 @@ Abstract
 
 \section{Introduction}
 
-Intro
+Zoubin is hoping for many students to start working on the automatic statistician project.
+Current software is mostly unusable by the public.
+Let's try to change that!
+
+The plan is to design a modular system that could be called the automatic statistician.
+New students can then contribute new code that satisifies certain protocols to enhance the automatic statistician.
 
 \section{Simplifying assumptions}
 
@@ -104,6 +109,7 @@ We will initially make many simplifying assumptions with a view to relaxing them
   \item Data assumed to be an exchangeable sequence of vectors
   \item Only building conditional models of a single output
   \item Minimal user interaction
+  \item The type of each variable (\eg binary, real valued, ordinal\dots) is known
   \item \dots
 \end{itemize}
 
@@ -113,6 +119,21 @@ This describes tasks the system should be able to perform.
 Some are within the scope of the current simplifying assumptions, others will require additional interfaces / messaging protocols.
 
 \subsection{Cross validated model selection}
+
+The data is split into folds.
+For each train / validation split the training data is used to build a number of models.
+The predictions of these models are then compared to the validation data and scored.
+The model with the best score is then trained on the full data and returned as the selected model.
+
+While cross validated model selection trains one model for each fold (and then another for the full data), the models trained on each fold do not need to be returned to the user.
+A potential flow could be
+\begin{itemize}
+  \item Manager creates data set object, cross validation folds object and scoring object
+  \item Manager creates several expert objects which are given access to the data, cross validation object and scoring object
+  \item Experts train models (on full data) and calculate cross validated performance and store this in local knowledge bases
+  \item Experts return models and cross validation performance (a tuple of model, data set, cross validation object, method of scoring, score)
+  \item Manager collates facts about cross validated performance and selects a model on the basis of these facts
+\end{itemize}
 
 \subsection{Bayesian model selection}
 
@@ -127,6 +148,7 @@ Some are within the scope of the current simplifying assumptions, others will re
 \begin{itemize}
   \item Concurrency
   \item Language independence
+  \item System independence
   \item Scalability
   \item \dots
 \end{itemize}
