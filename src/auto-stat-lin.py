@@ -80,7 +80,24 @@ class LinearModel(sklearn.linear_model.LinearRegression):
         return [self]
 
     def describe(self):
-        return 'I am a linear model trained by least squares'
+        description = 'I am a linear model trained by least squares.\n'
+        description += 'The output %s:' % self.data.y_labels
+        # Sort predictors by size of coefficient
+        coef_names_and_values = zip(self.data.X_labels, self.coef_)
+        sorted_coef = sorted(coef_names_and_values, key=lambda a_pair: np.abs(a_pair[1]), reverse=True)
+        n_predictors = 0
+        for name_and_value in sorted_coef:
+            name = name_and_value[0]
+            value = name_and_value[1]
+            if value > 0:
+                n_predictors += 1
+                description += '\n - increases linearly with input %s' % name
+            elif value < 0:
+                n_predictors += 1
+                description += '\n - decreases linearly with input %s' % name
+        if n_predictors == 0:
+            description += '\n - does not vary with the inputs'
+        return description
 
 
 class LassoLinReg(sklearn.linear_model.LassoLarsCV):
@@ -101,7 +118,24 @@ class LassoLinReg(sklearn.linear_model.LassoLarsCV):
         return [self]
 
     def describe(self):
-        return 'I am a linear model trained by cross validated LASSO'
+        description = 'I am a linear model trained by cross validated LASSO.\n'
+        description += 'The output %s:' % self.data.y_labels
+        # Sort predictors by size of coefficient
+        coef_names_and_values = zip(self.data.X_labels, self.coef_)
+        sorted_coef = sorted(coef_names_and_values, key=lambda a_pair: np.abs(a_pair[1]), reverse=True)
+        n_predictors = 0
+        for name_and_value in sorted_coef:
+            name = name_and_value[0]
+            value = name_and_value[1]
+            if value > 0:
+                n_predictors += 1
+                description += '\n - increases linearly with input %s' % name
+            elif value < 0:
+                n_predictors += 1
+                description += '\n - decreases linearly with input %s' % name
+        if n_predictors == 0:
+            description += '\n - does not vary with the inputs'
+        return description
 
 ##############################################
 #                                            #
@@ -225,8 +259,9 @@ class Manager():
         # Report
         print('Creating report')
 
-        print('\nList of models in order of cross validated error (best first)\n')
-        for fact in self.cv_models:
+        print('\nList of models in order of cross validated error (best first)')
+        for (i, fact) in enumerate(self.cv_models):
+            print('\n%d\n' % (i+1))
             print(fact[0].describe())
 
         print('\nThose cross validated errors in full\n')
@@ -250,7 +285,7 @@ class Manager():
 
 def main():
     data = DataSet()
-    data.load_from_file('../data/test-lin/simple-02.csv')
+    data.load_from_file('../data/test-lin/simple-01.csv')
     manager = Manager(data)
     manager.run()
 
