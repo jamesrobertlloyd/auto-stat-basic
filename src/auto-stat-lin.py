@@ -20,7 +20,7 @@ import numpy as np
 
 
 #### TODO
-#### - Implement stepwise regression expert
+#### - Implement stepwise regression expert that cross validates over depth
 #### - Think about how point estimates can be checked / converted to distributions
 #### - Implement some more serious model checks
 
@@ -68,6 +68,17 @@ class XYDataSet():
             data_sets.append(new_data_set)
         return data_sets
 
+    def input_subset(self, subset):
+        """Subsets the input variables and returns the data set"""
+        #### FIXME - This should call a copy routine
+        new_data_set = XYDataSet()
+        new_data_set.X_labels = [self.X_labels[index] for index in subset]
+        new_data_set.y_label = self.y_label
+        new_data_set.X = self.X[:, subset]
+        new_data_set.y = self.y
+        new_data_set.cv_indices = self.cv_indices
+        return new_data_set
+
     @property
     def cv_subsets(self):
         subsets = []
@@ -80,7 +91,7 @@ class XYDataSet():
 
 ##############################################
 #                                            #
-#          Description utilities             #
+#                Utilities                   #
 #                                            #
 ##############################################
 
@@ -106,6 +117,12 @@ def lin_mod_txt_description(coef, data):
         description += '\n - does not vary with the inputs'
     summary = 'A linear model with %d active inputs' % n_predictors
     return summary, description
+
+
+def BIC(model, data, n_params):
+    MSE = sklearn.metrics.mean_squared_error(data.y, model.predict(data))
+    n = data.X.shape[0]
+    return n * np.log(MSE) + n_params * np.log(n)
 
 ##############################################
 #                                            #
@@ -134,6 +151,7 @@ class SKLearnModel(object):
         self.data = data
 
     def train(self):
+        #### FIXME - This should probably be called 'run'
         self.model.fit(self.data.X, self.data.y)
         self.generate_descriptions()
 
@@ -161,6 +179,7 @@ class SKLinearModel(SKLearnModel):
         summary, description = lin_mod_txt_description(coef=self.model.coef_, data=self.data)
         self.knowledge_base.append(dict(label='summary', text=summary, model=self, data=self.data))
         self.knowledge_base.append(dict(label='description', text=description, model=self, data=self.data))
+        #### FIXME - This works, but maybe descriptions should be properties of models?
 
 
 class SKLassoReg(SKLearnModel):
@@ -173,6 +192,69 @@ class SKLassoReg(SKLearnModel):
         summary, description = lin_mod_txt_description(coef=self.model.coef_, data=self.data)
         self.knowledge_base.append(dict(label='summary', text=summary, model=self, data=self.data))
         self.knowledge_base.append(dict(label='description', text=description, model=self, data=self.data))
+
+
+class BICBackwardsStepwiseLin(object):
+    """BIC guided backwards stepwise linear regression"""
+
+    def __init__(self):
+        self.model = None
+        self.data = None
+        self.knowledge_base = []
+        self.subset = []
+        self.clear()
+
+    def clear(self):
+        self.model = SKLinearModel()
+        self.data = None
+        self.knowledge_base = []
+        self.subset = []
+
+    def load_data(self, data):
+        assert isinstance(data, XYDataSet)
+        self.data = data
+
+    def train(self):
+        self.subset = range(len(self.data.X_labels))
+        self.model.load_data(self.data)
+        self.model.train()
+        #### FIXME - model.model is clearly ugly :)
+        current_BIC = BIC(self.model, self.data, len(self.model.model.coef_))
+        improvement = True
+        while improvement and (len(self.subset) > 0):
+            improvement = False
+            best_BIC = current_BIC
+            # Try removing all input variables
+            for i in range(len(self.subset)):
+                temp_subset = self.subset[:i] + self.subset[(i+1):]
+                temp_data_set = self.data.input_subset(temp_subset)
+                temp_model = SKLinearModel()
+                temp_model.load_data(temp_data_set)
+                temp_model.train()
+                temp_BIC = BIC(temp_model, temp_data_set, len(temp_model.model.coef_))
+                if temp_BIC < best_BIC:
+                    best_model = temp_model
+                    best_subset = temp_subset
+                    best_BIC = temp_BIC
+            if best_BIC < current_BIC:
+                improvement = True
+                self.model = best_model
+                self.subset = best_subset
+                current_BIC = best_BIC
+        self.generate_descriptions()
+
+    def predict(self, data):
+        return self.model.predict(data.input_subset(self.subset))
+
+    def generate_descriptions(self):
+        summary, description = lin_mod_txt_description(coef=self.model.model.coef_,
+                                                       data=self.data.input_subset(self.subset))
+        self.knowledge_base.append(dict(label='summary', text=summary, model=self, data=self.data))
+        self.knowledge_base.append(dict(label='description', text=description, model=self, data=self.data))
+
+    @property
+    def knowledge(self):
+        return self.knowledge_base
 
 ##############################################
 #                                            #
@@ -220,7 +302,7 @@ class CrossValidationExpert(object):
         self.model.load_data(self.data)
         self.model.train()
         # Extract knowledge about the model
-        self.knowledge_base += self.model.knowledge
+        self.knowledge_base += self.model.knowledge #### FIXME - relies on model reporting knowledge correctly
         # Save fact to knowledge base
         self.knowledge_base.append(dict(label='CV-RMSE', model=self.model, value=cv_RMSE, data=self.data))
 
@@ -291,6 +373,7 @@ class Manager():
         #### e.g. knowledge is completely unstructured and may contain duplicates
 
         # Partition data in train / test
+        #### FIXME - Random or user specified partition?
         train_indices = range(0, int(np.floor(len(self.data.y) / 2)))
         test_indices  = range(int(np.floor(len(self.data.y) / 2)), int(len(self.data.y)))
         data_sets = self.data.subsets([train_indices, test_indices])
@@ -301,7 +384,8 @@ class Manager():
         train_data.set_cv_indices(train_folds)
         # Initialise list of models and experts
         experts = [CrossValidationExpert(SKLinearModel),
-                   CrossValidationExpert(SKLassoReg)]
+                   CrossValidationExpert(SKLassoReg),
+                   CrossValidationExpert(BICBackwardsStepwiseLin)]
         # Train the models
         print('Experts running')
         for expert in experts:
@@ -312,7 +396,7 @@ class Manager():
         self.knowledge_base = []
         for expert in experts:
             self.knowledge_base += expert.knowledge
-        #### Ideally duplicates would be removed - this would be fastest if knowledge was hashable - currently not
+        #### FIXME Ideally duplicates would be removed - this would be fastest if knowledge was hashable - currently not
         # Select / order
         self.cv_models = []
         for fact in self.knowledge_base:
@@ -368,7 +452,7 @@ class Manager():
 
 def main():
     data = XYDataSet()
-    data.load_from_file('../data/test-lin/simple-02.csv')
+    data.load_from_file('../data/test-lin/simple-01.csv')
     manager = Manager()
     manager.load_data(data)
     manager.run()
