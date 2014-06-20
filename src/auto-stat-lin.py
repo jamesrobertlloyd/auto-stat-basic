@@ -20,9 +20,10 @@ import numpy as np
 
 
 #### TODO
-#### - Implement stepwise regression expert that cross validates over depth
 #### - Think about how point estimates can be checked / converted to distributions
 #### - Implement some more serious model checks
+#### - Implement something with MCMC and a time budget
+#### - Implement stepwise regression expert that cross validates over depth
 
 ##############################################
 #                                            #
@@ -452,7 +453,7 @@ class Manager():
 
 def main():
     data = XYDataSet()
-    data.load_from_file('../data/test-lin/simple-01.csv')
+    data.load_from_file('../data/test-lin/simple-03.csv')
     manager = Manager()
     manager.load_data(data)
     manager.run()
