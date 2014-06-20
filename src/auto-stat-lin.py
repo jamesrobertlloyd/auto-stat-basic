@@ -18,6 +18,12 @@ from sklearn.cross_validation import KFold
 
 import numpy as np
 
+
+#### TODO
+#### - Implement stepwise regression expert
+#### - Think about how point estimates can be checked / converted to distributions
+#### - Implement some more serious model checks
+
 ##############################################
 #                                            #
 #                   Data                     #
@@ -281,6 +287,9 @@ class Manager():
         self.data = data
 
     def run(self):
+        #### This code is messy as is
+        #### e.g. knowledge is completely unstructured and may contain duplicates
+
         # Partition data in train / test
         train_indices = range(0, int(np.floor(len(self.data.y) / 2)))
         test_indices  = range(int(np.floor(len(self.data.y) / 2)), int(len(self.data.y)))
