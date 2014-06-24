@@ -20,7 +20,7 @@ import numpy as np
 import random
 
 #### TODO
-#### - Think about how point estimates can be checked / converted to distributions
+#### - Distributions should have cross validated noise levels
 #### - Implement some more serious model checks
 #### - Implement stepwise regression expert that cross validates over depth
 
@@ -339,6 +339,10 @@ class CrossValidationExpert(object):
         # Save facts about CV-RMSE to knowledge base
         for (score, distribution) in zip(cv_RMSE, self.model.conditional_distributions):
             self.knowledge_base.append(dict(label='CV-RMSE', distribution=distribution, value=score, data=self.data))
+            # Modify noise levels of model if appropriate
+            if isinstance(distribution, SKLearnModelInputFilteredPlusGaussian) or \
+               isinstance(distribution, SKLearnModelPlusGaussian):
+                distribution.sd = score
 
 ##############################################
 #                                            #
@@ -486,8 +490,8 @@ class Manager():
 def main():
     data = XYDataSet()
     # data.load_from_file('../data/test-lin/simple-01.csv')
-    data.load_from_file('../data/test-lin/uci-slump-test.csv')
-    # data.load_from_file('../data/test-lin/uci-housing.csv')
+    # data.load_from_file('../data/test-lin/uci-slump-test.csv')
+    data.load_from_file('../data/test-lin/uci-housing.csv')
     manager = Manager()
     manager.load_data(data)
     manager.run()
