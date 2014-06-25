@@ -24,8 +24,10 @@ import numpy as np
 import random
 
 #### TODO
+#### - Visuals!
 #### - Make sampling several times more efficient - I think it could be a bottleneck
 #### - Identify other bottlenecks
+#### - Make manager prefer simplicity
 #### - Implement stepwise regression expert that cross validates over depth
 
 ##############################################
