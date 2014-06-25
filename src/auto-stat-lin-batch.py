@@ -723,8 +723,8 @@ class Manager():
 def main():
     data = XYDataSet()
     # data.load_from_file('../data/test-lin/simple-01.csv')
-    data.load_from_file('../data/test-lin/uci-slump-test.csv')
-    # data.load_from_file('../data/test-lin/uci-housing.csv')
+    # data.load_from_file('../data/test-lin/uci-slump-test.csv')
+    data.load_from_file('../data/test-lin/uci-housing.csv')
     manager = Manager()
     manager.load_data(data)
     manager.run()
