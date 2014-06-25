@@ -20,7 +20,12 @@ from sklearn.cross_decomposition import CCA
 
 from scipy import stats
 
+import matplotlib.pyplot as plt
+from matplotlib import rcParams
+rcParams.update({'figure.autolayout': True})
+
 import numpy as np
+
 import random
 
 #### TODO
@@ -238,6 +243,56 @@ class SKLinearModel(SKLearnModel):
         self.knowledge_base.append(dict(label='description', text=description,
                                         distribution=self.conditional_distributions[0], data=self.data))
 
+    def generate_figures(self):
+        # Plot training data against fit
+        fig = plt.figure(figsize=(5, 4))
+        ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+        y_hat = self.conditional_distributions[0].conditional_mean(self.data)
+        sorted_y_hat = np.sort(y_hat)
+        ax.plot(sorted_y_hat, sorted_y_hat, color="blue")
+        ax.scatter(y_hat, self.data.y, color="red", marker="o")
+        ax.set_title("Training data against fit")
+        ax.set_xlabel("Model fit")
+        ax.set_ylabel("Training data")
+        fig.savefig("../temp-report/figures/lin-train-fit.pdf")
+        plt.close()
+        # Plot data against all dimensions
+        for dim in range(self.data.X.shape[1]):
+            fig = plt.figure(figsize=(5, 4))
+            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+            ax.scatter(self.data.X[:, dim], self.data.y, color="red", marker="o")
+            ax.set_title("Training data against %s" % self.data.X_labels[dim])
+            ax.set_xlabel(self.data.X_labels[dim])
+            ax.set_ylabel("Training data")
+            fig.savefig("../temp-report/figures/lin-train-%s.pdf" % self.data.X_labels[dim])
+            plt.close()
+        # Plot rest of model against fit
+        for dim in range(self.data.X.shape[1]):
+            fig = plt.figure(figsize=(5, 4))
+            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+            y_hat = self.conditional_distributions[0].conditional_mean(self.data)
+            component_fit = self.model.coef_[dim] * self.data.X[:, dim].ravel()
+            partial_resid = self.data.y - (y_hat - component_fit)
+            plot_idx = np.argsort(self.data.X[:, dim].ravel())
+            ax.plot(self.data.X[plot_idx, dim], component_fit[plot_idx], color="blue")
+            ax.scatter(self.data.X[:, dim], partial_resid, color="red", marker="o")
+            ax.set_title("Partial residual against %s" % self.data.X_labels[dim])
+            ax.set_xlabel(self.data.X_labels[dim])
+            ax.set_ylabel("Partial residual")
+            fig.savefig("../temp-report/figures/lin-partial-resid-%s.pdf" % self.data.X_labels[dim])
+            plt.close()
+        # Plot residuals against each dimension
+        for dim in range(self.data.X.shape[1]):
+            fig = plt.figure(figsize=(5, 4))
+            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+            y_hat = self.conditional_distributions[0].conditional_mean(self.data)
+            resid = self.data.y - y_hat
+            ax.scatter(self.data.X[:, dim], resid, color="red", marker="o")
+            ax.set_title("Residuals against %s" % self.data.X_labels[dim])
+            ax.set_xlabel(self.data.X_labels[dim])
+            ax.set_ylabel("Residuals")
+            fig.savefig("../temp-report/figures/lin-resid-%s.pdf" % self.data.X_labels[dim])
+            plt.close()
 
 class SKLassoReg(SKLearnModel):
     """Lasso trained linear regression model"""
@@ -364,6 +419,8 @@ class CrossValidationExpert(object):
         self.model = self.model_class()
         self.model.load_data(self.data)
         self.model.run()
+        # FIXME - The following line is a bit of a hack
+        self.model.generate_figures()
         # Extract knowledge about the model
         self.knowledge_base += self.model.knowledge_base
         # Save facts about CV-RMSE to knowledge base
@@ -549,12 +606,12 @@ class RegressionDiagnosticsExpert():
     def run(self):
         self.RMSE_test()
         self.corr_test()
-        self.RDC_test()
-        self.corr_test_multi_dim()
-        self.RDC_test_multi_dim()
-        self.corr_test_multi_dim_data()
-        self.RDC_test_multi_dim_data()
-        self.benjamini_hochberg(alpha=0.05)
+        # self.RDC_test()
+        # self.corr_test_multi_dim()
+        # self.RDC_test_multi_dim()
+        # self.corr_test_multi_dim_data()
+        # self.RDC_test_multi_dim_data()
+        # self.benjamini_hochberg(alpha=0.05)
 
 ##############################################
 #                                            #
@@ -596,10 +653,10 @@ class Manager():
         train_folds = KFold(len(train_data.y), n_folds=5, indices=False)
         train_data.set_cv_indices(train_folds)
         # Initialise list of models and experts
-        experts = [CrossValidationExpert(SKLinearModel),
-                   CrossValidationExpert(SKLassoReg),
-                   CrossValidationExpert(BICBackwardsStepwiseLin),
-                   CrossValidationExpert(SKLearnRandomForestReg)]
+        experts = [CrossValidationExpert(SKLinearModel)]#,
+                   #CrossValidationExpert(SKLassoReg),
+                   #CrossValidationExpert(BICBackwardsStepwiseLin),
+                   #CrossValidationExpert(SKLearnRandomForestReg)]
         # Train the models
         print('Experts running')
         for expert in experts:
