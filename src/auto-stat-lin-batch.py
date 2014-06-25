@@ -15,13 +15,17 @@ import sklearn
 import sklearn.linear_model
 import sklearn.ensemble
 from sklearn.cross_validation import KFold
+from sklearn.metrics import mean_squared_error as MSE
+from sklearn.cross_decomposition import CCA
+
+from scipy import stats
 
 import numpy as np
 import random
 
 #### TODO
-#### - Distributions should have cross validated noise levels
-#### - Implement some more serious model checks
+#### - Make sampling several times more efficient - I think it could be a bottleneck
+#### - Identify other bottlenecks
 #### - Implement stepwise regression expert that cross validates over depth
 
 ##############################################
@@ -124,6 +128,30 @@ def BIC(dist, data, n_params):
     n = data.X.shape[0]
     return n * np.log(MSE) + n_params * np.log(n)
 
+
+def rank(x):
+    """
+    :type x: np.array
+    """
+    return x.argsort().argsort()
+
+
+def RDC(x, y, k=10, s=0.2):
+    """Randomised dependency criterion"""
+    # FIXME - this should be tied rank
+    x = x.flatten()
+    y = y.flatten()
+    x = np.vstack((rank(x) / len(x), np.ones(len(x)))).T
+    y = np.vstack((rank(y) / len(y), np.ones(len(y)))).T
+    x = np.sin(0.5 * s * np.dot(x, np.random.randn(2, k)))
+    y = np.sin(0.5 * s * np.dot(y, np.random.randn(2, k)))
+    x = np.hstack((x, np.ones((x.shape[0], 1))))
+    y = np.hstack((y, np.ones((y.shape[0], 1))))
+    temp_CCA = CCA()
+    temp_CCA.fit(x, y)
+    x, y = temp_CCA.transform(x, y)
+    return abs(stats.pearsonr(x[:, 0], y[:, 0])[0])
+
 ##############################################
 #                                            #
 #              Distributions                 #
@@ -139,10 +167,10 @@ class SKLearnModelPlusGaussian(object):
         self.sd = sd
 
     def conditional_mean(self, data):
-        return self.model.predict(data.X)
+        return self.model.predict(data.X).ravel()
 
     def conditional_sample(self, data):
-        return self.conditional_mean(data) + self.sd * np.random.randn(data.X.shape[0], 1)
+        return (self.conditional_mean(data) + (self.sd * np.random.randn(data.X.shape[0], 1)).ravel()).ravel()
 
 
 class SKLearnModelInputFilteredPlusGaussian(object):
@@ -158,7 +186,7 @@ class SKLearnModelInputFilteredPlusGaussian(object):
         return self.model.predict(data.input_subset(self.subset).X)
 
     def conditional_sample(self, data):
-        return self.conditional_mean(data) + self.sd * np.random.randn(data.X.shape[0], 1)
+        return (self.conditional_mean(data) + (self.sd * np.random.randn(data.X.shape[0], 1)).ravel()).ravel()
 
 ##############################################
 #                                            #
@@ -356,6 +384,7 @@ class RegressionDiagnosticsExpert():
         self.conditional_distribution = None
         self.data = None
         self.knowledge_base = []
+        self.boot_iters = 1000
 
     def clear(self):
         self.conditional_distribution = None
@@ -369,15 +398,161 @@ class RegressionDiagnosticsExpert():
     def load_model(self, model):
         self.conditional_distribution = model
 
-    def run(self):
-        # Calculate RMSE
-        RMSE = np.sqrt(sklearn.metrics.mean_squared_error(self.data.y,
-                                                          self.conditional_distribution.conditional_mean(self.data)))
+    # TODO - this can be abstracted nicely - just functions of residuals and model fit / data
+
+    def RMSE_test(self):
+        # TODO - turn this into chi squared version of test for heteroscedasticity?
+        # Compute statistics on data
+        y_hat = self.conditional_distribution.conditional_mean(self.data)
+        RMSE = np.sqrt(MSE(self.data.y, y_hat))
+        # Calculate sampling distribution
+        sample_RMSEs = np.zeros(self.boot_iters)
+        for i in range(self.boot_iters):
+            y_rep = self.conditional_distribution.conditional_sample(self.data)
+            sample_RMSEs[i] = np.sqrt(MSE(y_rep, y_hat))
+        # Calculate p value
+        p_RMSE = np.sum(sample_RMSEs > RMSE) / self.boot_iters
+        # Generate a description of this fact
+        description = 'RMSE of %f which yields a p-value of %f' % (RMSE, p_RMSE)
         # Save this to the knowledge base
         self.knowledge_base.append(dict(label='RMSE', distribution=self.conditional_distribution,
-                                        value=RMSE, data=self.data))
-        # Perform some sort of hypothesis test
-        pass
+                                        value=RMSE, data=self.data, description=description, p_value=p_RMSE))
+
+    def corr_test(self):
+        """Test correlation of residuals with fit term"""
+        # Compute statistics on data
+        y_hat = self.conditional_distribution.conditional_mean(self.data)
+        corr = abs(stats.pearsonr(y_hat, self.data.y - y_hat)[0])
+        # Calculate sampling distribution
+        sample_corrs = np.zeros(self.boot_iters)
+        for i in range(self.boot_iters):
+            y_rep = self.conditional_distribution.conditional_sample(self.data)
+            sample_corrs[i] = abs(stats.pearsonr(y_hat, y_rep - y_hat)[0])
+        # Calculate p value
+        p_corr = np.sum(sample_corrs > corr) / self.boot_iters
+        # Generate a description of this fact
+        description = 'Correlation of %f which yields a p-value of %f' % (corr, p_corr)
+        # Save this to the knowledge base
+        self.knowledge_base.append(dict(label='corr-test', distribution=self.conditional_distribution,
+                                        value=corr, data=self.data, description=description, p_value=p_corr))
+
+    def RDC_test(self):
+        """Test correlation of residuals with fit term using randomised dependence coefficient"""
+        # Compute statistics on data
+        y_hat = self.conditional_distribution.conditional_mean(self.data)
+        corr = RDC(y_hat, self.data.y - y_hat)
+        # Calculate sampling distribution
+        sample_corrs = np.zeros(self.boot_iters)
+        for i in range(self.boot_iters):
+            y_rep = self.conditional_distribution.conditional_sample(self.data)
+            sample_corrs[i] = RDC(y_hat, y_rep - y_hat)
+        # Calculate p value
+        p_corr = np.sum(sample_corrs > corr) / self.boot_iters
+        # Generate a description of this fact
+        description = 'RDC of %f which yields a p-value of %f' % (corr, p_corr)
+        # Save this to the knowledge base
+        self.knowledge_base.append(dict(label='RDC-test', distribution=self.conditional_distribution,
+                                        value=corr, data=self.data, description=description, p_value=p_corr))
+
+    def corr_test_multi_dim(self):
+        """Test correlation of residuals with inputs using randomised dependence coefficient"""
+        for dim in range(self.data.X.shape[1]):
+            # Compute statistics on data
+            y_hat = self.conditional_distribution.conditional_mean(self.data)
+            corr = abs(stats.pearsonr(self.data.X[:,dim], self.data.y - y_hat)[0])
+            # Calculate sampling distribution
+            sample_corrs = np.zeros(self.boot_iters)
+            for i in range(self.boot_iters):
+                y_rep = self.conditional_distribution.conditional_sample(self.data)
+                sample_corrs[i] = abs(stats.pearsonr(self.data.X[:,dim], y_rep - y_hat)[0])
+            # Calculate p value
+            p_corr = np.sum(sample_corrs > corr) / self.boot_iters
+            # Generate a description of this fact
+            description = 'Correlation of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
+            # Save this to the knowledge base
+            self.knowledge_base.append(dict(label='corr-test-dim', distribution=self.conditional_distribution,
+                                            value=corr, data=self.data, description=description, p_value=p_corr))
+
+    def RDC_test_multi_dim(self):
+        """Test correlation of residuals with inputs using randomised dependence coefficient"""
+        for dim in range(self.data.X.shape[1]):
+            # Compute statistics on data
+            y_hat = self.conditional_distribution.conditional_mean(self.data)
+            corr = RDC(self.data.X[:,dim], self.data.y - y_hat)
+            # Calculate sampling distribution
+            sample_corrs = np.zeros(self.boot_iters)
+            for i in range(self.boot_iters):
+                y_rep = self.conditional_distribution.conditional_sample(self.data)
+                sample_corrs[i] = RDC(self.data.X[:,dim], y_rep - y_hat)
+            # Calculate p value
+            p_corr = np.sum(sample_corrs > corr) / self.boot_iters
+            # Generate a description of this fact
+            description = 'RDC of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
+            # Save this to the knowledge base
+            self.knowledge_base.append(dict(label='RDC-test-dim', distribution=self.conditional_distribution,
+                                            value=corr, data=self.data, description=description, p_value=p_corr))
+
+    def corr_test_multi_dim_data(self):
+        """Test correlation of residuals with inputs using randomised dependence coefficient"""
+        for dim in range(self.data.X.shape[1]):
+            # Compute statistics on data
+            y_hat = self.conditional_distribution.conditional_mean(self.data)
+            corr = abs(stats.pearsonr(self.data.X[:,dim], self.data.y)[0])
+            # Calculate sampling distribution
+            sample_corrs = np.zeros(self.boot_iters)
+            for i in range(self.boot_iters):
+                y_rep = self.conditional_distribution.conditional_sample(self.data)
+                sample_corrs[i] = abs(stats.pearsonr(self.data.X[:,dim], y_rep)[0])
+            # Calculate p value
+            p_corr = np.sum(sample_corrs > corr) / self.boot_iters
+            # Generate a description of this fact
+            description = 'Correlation on data of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
+            # Save this to the knowledge base
+            self.knowledge_base.append(dict(label='corr-test-dim-data', distribution=self.conditional_distribution,
+                                            value=corr, data=self.data, description=description, p_value=p_corr))
+
+    def RDC_test_multi_dim_data(self):
+        """Test correlation of residuals with inputs using randomised dependence coefficient"""
+        for dim in range(self.data.X.shape[1]):
+            # Compute statistics on data
+            y_hat = self.conditional_distribution.conditional_mean(self.data)
+            corr = RDC(self.data.X[:,dim], self.data.y)
+            # Calculate sampling distribution
+            sample_corrs = np.zeros(self.boot_iters)
+            for i in range(self.boot_iters):
+                y_rep = self.conditional_distribution.conditional_sample(self.data)
+                sample_corrs[i] = RDC(self.data.X[:,dim], y_rep)
+            # Calculate p value
+            p_corr = np.sum(sample_corrs > corr) / self.boot_iters
+            # Generate a description of this fact
+            description = 'RDC on data of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
+            # Save this to the knowledge base
+            self.knowledge_base.append(dict(label='RDC-test-dim-data', distribution=self.conditional_distribution,
+                                            value=corr, data=self.data, description=description, p_value=p_corr))
+
+    def benjamini_hochberg(self, alpha=0.05):
+        """Orders p-values in facts and records which facts are discoveries"""
+        # FIXME - Currently assumes that knowledge base only contains p values
+        # Sort facts
+        self.knowledge_base.sort(key=lambda fact: fact['p_value'])
+        # Apply BH procedure
+        discoveries = []
+        for (i, fact) in enumerate(self.knowledge_base):
+            if fact['p_value'] <= alpha * (i + 1) / len(self.knowledge_base):
+                discoveries.append(fact)
+            else:
+                break
+        self.knowledge_base.append(dict(label='BH-discoveries', alpha=alpha, discoveries=discoveries))
+
+    def run(self):
+        self.RMSE_test()
+        self.corr_test()
+        self.RDC_test()
+        self.corr_test_multi_dim()
+        self.RDC_test_multi_dim()
+        self.corr_test_multi_dim_data()
+        self.RDC_test_multi_dim_data()
+        self.benjamini_hochberg(alpha=0.05)
 
 ##############################################
 #                                            #
@@ -442,7 +617,7 @@ class Manager():
         self.cv_dists = sorted(self.cv_dists, key=lambda a_fact : a_fact[1])
         # Run model diagnostics
         print('Running diagnostics')
-        for fact in self.cv_dists:
+        for fact in [self.cv_dists[0]]:# FIXME - this is a hack to only check the best model
             checking_expert = RegressionDiagnosticsExpert()
             checking_expert.load_data(test_data)
             checking_expert.load_model(fact[0])
@@ -464,21 +639,79 @@ class Manager():
             if (other_fact['label'] == 'description') and (other_fact['distribution'] == dist):
                 print(other_fact['text'])
 
-        print('\nThose cross validated errors in full\n')
-        for fact in self.cv_dists:
-            print(fact[1])
+        print('\nModel criticism discoveries\n')
+        for fact in self.knowledge_base:
+            if fact['label'] == 'BH-discoveries':
+                for discovery in fact['discoveries']:
+                    print(discovery['description'])
 
-        print('\nTest set errors\n')
-        for cv_fact in self.cv_dists:
-            dist = cv_fact[0]
-            for fact in self.knowledge_base:
-                # Look for test set RMSE
-                if (fact['label'] == 'RMSE') and (fact['data'] == test_data) and (fact['distribution'] == dist):
-                    print(fact['value'])
+        # print('\nThose cross validated errors in full\n')
+        # for fact in self.cv_dists:
+        #     print(fact[1])
+        #
+        # print('\nTest set errors\n')
+        # for cv_fact in self.cv_dists:
+        #     dist = cv_fact[0]
+        #     for fact in self.knowledge_base:
+        #         # Look for test set RMSE
+        #         if (fact['label'] == 'RMSE') and (fact['data'] == test_data) and (fact['distribution'] == dist):
+        #             print(fact['value'])
 
-    @property
-    def knowledge(self):
-        return self.knowledge_base
+        # print('\nTest set error descriptions\n')
+        # for cv_fact in self.cv_dists:
+        #     dist = cv_fact[0]
+        #     for fact in self.knowledge_base:
+        #         # Look for test set RMSE
+        #         if (fact['label'] == 'RMSE') and (fact['data'] == test_data) and (fact['distribution'] == dist):
+        #             print(fact['description'])
+        #
+        # print('\nCorrelation test descriptions\n')
+        # for cv_fact in self.cv_dists:
+        #     dist = cv_fact[0]
+        #     for fact in self.knowledge_base:
+        #         # Look for test set RMSE
+        #         if (fact['label'] == 'corr-test') and (fact['data'] == test_data) and (fact['distribution'] == dist):
+        #             print(fact['description'])
+        #
+        # print('\nCorrelation dimension test descriptions\n')
+        # for cv_fact in self.cv_dists:
+        #     dist = cv_fact[0]
+        #     for fact in self.knowledge_base:
+        #         # Look for test set RMSE
+        #         if (fact['label'] == 'corr-test-dim') and (fact['data'] == test_data) and (fact['distribution'] == dist):
+        #             print(fact['description'])
+        #
+        # print('\nCorrelation on data dimension test descriptions\n')
+        # for cv_fact in self.cv_dists:
+        #     dist = cv_fact[0]
+        #     for fact in self.knowledge_base:
+        #         # Look for test set RMSE
+        #         if (fact['label'] == 'corr-test-dim-data') and (fact['data'] == test_data) and (fact['distribution'] == dist):
+        #             print(fact['description'])
+        #
+        # print('\nRDC test descriptions\n')
+        # for cv_fact in self.cv_dists:
+        #     dist = cv_fact[0]
+        #     for fact in self.knowledge_base:
+        #         # Look for test set RMSE
+        #         if (fact['label'] == 'RDC-test') and (fact['data'] == test_data) and (fact['distribution'] == dist):
+        #             print(fact['description'])
+        #
+        # print('\nRDC dimension test descriptions\n')
+        # for cv_fact in self.cv_dists:
+        #     dist = cv_fact[0]
+        #     for fact in self.knowledge_base:
+        #         # Look for test set RMSE
+        #         if (fact['label'] == 'RDC-test-dim') and (fact['data'] == test_data) and (fact['distribution'] == dist):
+        #             print(fact['description'])
+        #
+        # print('\nRDC on data dimension test descriptions\n')
+        # for cv_fact in self.cv_dists:
+        #     dist = cv_fact[0]
+        #     for fact in self.knowledge_base:
+        #         # Look for test set RMSE
+        #         if (fact['label'] == 'RDC-test-dim-data') and (fact['data'] == test_data) and (fact['distribution'] == dist):
+        #             print(fact['description'])
 
 ##############################################
 #                                            #
@@ -490,8 +723,8 @@ class Manager():
 def main():
     data = XYDataSet()
     # data.load_from_file('../data/test-lin/simple-01.csv')
-    # data.load_from_file('../data/test-lin/uci-slump-test.csv')
-    data.load_from_file('../data/test-lin/uci-housing.csv')
+    data.load_from_file('../data/test-lin/uci-slump-test.csv')
+    # data.load_from_file('../data/test-lin/uci-housing.csv')
     manager = Manager()
     manager.load_data(data)
     manager.run()
