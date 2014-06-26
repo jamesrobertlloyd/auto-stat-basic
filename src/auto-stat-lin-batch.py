@@ -173,9 +173,17 @@ class SKLearnModelPlusGaussian(object):
     def __init__(self, model, sd):
         self.model = model
         self.sd = sd
+        self.conditional_mean_ = None
+
+    def clear_cache(self):
+        # FIXME - this is not how caching should work - SUCH A HACK
+        self.conditional_mean_ = None
 
     def conditional_mean(self, data):
-        return self.model.predict(data.X).ravel()
+        # FIXME - this is not how caching should work - SUCH A HACK
+        if self.conditional_mean_ is None:
+            self.conditional_mean_ = self.model.predict(data.X).ravel()
+        return self.conditional_mean_
 
     def conditional_sample(self, data):
         return (self.conditional_mean(data) + (self.sd * np.random.randn(data.X.shape[0], 1)).ravel()).ravel()
@@ -189,9 +197,17 @@ class SKLearnModelInputFilteredPlusGaussian(object):
         self.model = model
         self.sd = sd
         self.subset = subset
+        self.conditional_mean_ = None
+
+    def clear_cache(self):
+        # FIXME - this is not how caching should work - SUCH A HACK
+        self.conditional_mean_ = None
 
     def conditional_mean(self, data):
-        return self.model.predict(data.input_subset(self.subset).X)
+        # FIXME - this is not how caching should work - SUCH A HACK
+        if self.conditional_mean_ is None:
+            self.conditional_mean_ = self.model.predict(data.input_subset(self.subset).X)
+        return self.conditional_mean_
 
     def conditional_sample(self, data):
         return (self.conditional_mean(data) + (self.sd * np.random.randn(data.X.shape[0], 1)).ravel()).ravel()
@@ -308,6 +324,20 @@ class SKLassoReg(SKLearnModel):
         self.knowledge_base.append(dict(label='description', text=description,
                                         distribution=self.conditional_distributions[0], data=self.data))
 
+    def generate_figures(self):
+        # Plot training data against fit
+        fig = plt.figure(figsize=(5, 4))
+        ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+        y_hat = self.conditional_distributions[0].conditional_mean(self.data)
+        sorted_y_hat = np.sort(y_hat)
+        ax.plot(sorted_y_hat, sorted_y_hat, color="blue")
+        ax.scatter(y_hat, self.data.y, color="red", marker="o")
+        ax.set_title("Training data against fit")
+        ax.set_xlabel("Model fit")
+        ax.set_ylabel("Training data")
+        fig.savefig("../temp-report/figures/lasso-train-fit.pdf")
+        plt.close()
+
 class SKLearnRandomForestReg(SKLearnModel):
 
     def __init__(self):
@@ -319,6 +349,20 @@ class SKLearnRandomForestReg(SKLearnModel):
                                         distribution=self.conditional_distributions[0], data=self.data))
         self.knowledge_base.append(dict(label='description', text='I am still random forest',
                                         distribution=self.conditional_distributions[0], data=self.data))
+
+    def generate_figures(self):
+        # Plot training data against fit
+        fig = plt.figure(figsize=(5, 4))
+        ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+        y_hat = self.conditional_distributions[0].conditional_mean(self.data)
+        sorted_y_hat = np.sort(y_hat)
+        ax.plot(sorted_y_hat, sorted_y_hat, color="blue")
+        ax.scatter(y_hat, self.data.y, color="red", marker="o")
+        ax.set_title("Training data against fit")
+        ax.set_xlabel("Model fit")
+        ax.set_ylabel("Training data")
+        fig.savefig("../temp-report/figures/rf-train-fit.pdf")
+        plt.close()
 
 
 class BICBackwardsStepwiseLin(object):
@@ -374,6 +418,20 @@ class BICBackwardsStepwiseLin(object):
                                         distribution=self.conditional_distributions[0], data=self.data))
         self.knowledge_base.append(dict(label='description', text=description,
                                         distribution=self.conditional_distributions[0], data=self.data))
+
+    def generate_figures(self):
+        # Plot training data against fit
+        fig = plt.figure(figsize=(5, 4))
+        ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+        y_hat = self.conditional_distributions[0].conditional_mean(self.data)
+        sorted_y_hat = np.sort(y_hat)
+        ax.plot(sorted_y_hat, sorted_y_hat, color="blue")
+        ax.scatter(y_hat, self.data.y, color="red", marker="o")
+        ax.set_title("Training data against fit")
+        ax.set_xlabel("Model fit")
+        ax.set_ylabel("Training data")
+        fig.savefig("../temp-report/figures/lin-bic-train-fit.pdf")
+        plt.close()
 
 ##############################################
 #                                            #
@@ -476,7 +534,20 @@ class RegressionDiagnosticsExpert():
         description = 'RMSE of %f which yields a p-value of %f' % (RMSE, p_RMSE)
         # Save this to the knowledge base
         self.knowledge_base.append(dict(label='RMSE', distribution=self.conditional_distribution,
-                                        value=RMSE, data=self.data, description=description, p_value=p_RMSE))
+                                        value=RMSE, data=self.data, description=description, p_value=p_RMSE,
+                                        plot='test-fit'))
+        # Plot some stuff
+        fig = plt.figure(figsize=(5, 4))
+        ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+        ax.scatter(y_hat, y_rep, color="blue", marker="o", label='Samples')
+        ax.scatter(y_hat, self.data.y, color="red", marker="o", label='Test')
+        leg = ax.legend(scatterpoints=1, loc='best')
+        leg.get_frame().set_alpha(0.5)
+        ax.set_title("Testing data against predictions")
+        ax.set_xlabel("Model fit")
+        ax.set_ylabel("Test data and sample")
+        fig.savefig("../temp-report/figures/test-fit.pdf")
+        plt.close()
 
     def corr_test(self):
         """Test correlation of residuals with fit term"""
@@ -491,10 +562,23 @@ class RegressionDiagnosticsExpert():
         # Calculate p value
         p_corr = np.sum(sample_corrs > corr) / self.boot_iters
         # Generate a description of this fact
-        description = 'Correlation of %f which yields a p-value of %f' % (corr, p_corr)
+        description = 'Correlation on residuals of %f which yields a p-value of %f' % (corr, p_corr)
+        # Plot some stuff
+        fig = plt.figure(figsize=(5, 4))
+        ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+        ax.scatter(y_hat, y_rep - y_hat, color="blue", marker="o", label='Samples')
+        ax.scatter(y_hat, self.data.y - y_hat, color="red", marker="o", label='Test')
+        leg = ax.legend(scatterpoints=1, loc='best')
+        leg.get_frame().set_alpha(0.5)
+        ax.set_title("Testing data against predictions")
+        ax.set_xlabel("Model fit")
+        ax.set_ylabel("Test residuals and sample residuals")
+        fig.savefig("../temp-report/figures/test-resid-fit.pdf")
+        plt.close()
         # Save this to the knowledge base
         self.knowledge_base.append(dict(label='corr-test', distribution=self.conditional_distribution,
-                                        value=corr, data=self.data, description=description, p_value=p_corr))
+                                        value=corr, data=self.data, description=description, p_value=p_corr,
+                                        plot='test-resid-fit'))
 
     def RDC_test(self):
         """Test correlation of residuals with fit term using randomised dependence coefficient"""
@@ -512,7 +596,8 @@ class RegressionDiagnosticsExpert():
         description = 'RDC of %f which yields a p-value of %f' % (corr, p_corr)
         # Save this to the knowledge base
         self.knowledge_base.append(dict(label='RDC-test', distribution=self.conditional_distribution,
-                                        value=corr, data=self.data, description=description, p_value=p_corr))
+                                        value=corr, data=self.data, description=description, p_value=p_corr,
+                                        plot='test-resid-fit'))
 
     def corr_test_multi_dim(self):
         """Test correlation of residuals with inputs using randomised dependence coefficient"""
@@ -528,10 +613,23 @@ class RegressionDiagnosticsExpert():
             # Calculate p value
             p_corr = np.sum(sample_corrs > corr) / self.boot_iters
             # Generate a description of this fact
-            description = 'Correlation of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
+            description = 'Correlation on residuals of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
             # Save this to the knowledge base
             self.knowledge_base.append(dict(label='corr-test-dim', distribution=self.conditional_distribution,
-                                            value=corr, data=self.data, description=description, p_value=p_corr))
+                                            value=corr, data=self.data, description=description, p_value=p_corr,
+                                            plot='test-resid-%s' % self.data.X_labels[dim]))
+            # Plot some stuff
+            fig = plt.figure(figsize=(5, 4))
+            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+            ax.scatter(self.data.X[:,dim], y_rep - y_hat, color="blue", marker="o", label='Samples')
+            ax.scatter(self.data.X[:,dim], self.data.y - y_hat, color="red", marker="o", label='Test')
+            leg = ax.legend(scatterpoints=1, loc='best')
+            leg.get_frame().set_alpha(0.5)
+            ax.set_title("Testing residuals against %s" % self.data.X_labels[dim])
+            ax.set_xlabel(self.data.X_labels[dim])
+            ax.set_ylabel("Test residuals and sample residuals")
+            fig.savefig("../temp-report/figures/test-resid-%s.pdf" % self.data.X_labels[dim])
+            plt.close()
 
     def RDC_test_multi_dim(self):
         """Test correlation of residuals with inputs using randomised dependence coefficient"""
@@ -547,10 +645,11 @@ class RegressionDiagnosticsExpert():
             # Calculate p value
             p_corr = np.sum(sample_corrs > corr) / self.boot_iters
             # Generate a description of this fact
-            description = 'RDC of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
+            description = 'RDC on residuals of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
             # Save this to the knowledge base
             self.knowledge_base.append(dict(label='RDC-test-dim', distribution=self.conditional_distribution,
-                                            value=corr, data=self.data, description=description, p_value=p_corr))
+                                            value=corr, data=self.data, description=description, p_value=p_corr,
+                                            plot='test-resid-%s' % self.data.X_labels[dim]))
 
     def corr_test_multi_dim_data(self):
         """Test correlation of residuals with inputs using randomised dependence coefficient"""
@@ -569,7 +668,20 @@ class RegressionDiagnosticsExpert():
             description = 'Correlation on data of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
             # Save this to the knowledge base
             self.knowledge_base.append(dict(label='corr-test-dim-data', distribution=self.conditional_distribution,
-                                            value=corr, data=self.data, description=description, p_value=p_corr))
+                                            value=corr, data=self.data, description=description, p_value=p_corr,
+                                            plot='test-data-%s' % self.data.X_labels[dim]))
+            # Plot some stuff
+            fig = plt.figure(figsize=(5, 4))
+            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+            ax.scatter(self.data.X[:,dim], y_rep, color="blue", marker="o", label='Samples')
+            ax.scatter(self.data.X[:,dim], self.data.y, color="red", marker="o", label='Test')
+            leg = ax.legend(scatterpoints=1, loc='best')
+            leg.get_frame().set_alpha(0.5)
+            ax.set_title("Testing data against %s" % self.data.X_labels[dim])
+            ax.set_xlabel(self.data.X_labels[dim])
+            ax.set_ylabel("Test data and samples")
+            fig.savefig("../temp-report/figures/test-data-%s.pdf" % self.data.X_labels[dim])
+            plt.close()
 
     def RDC_test_multi_dim_data(self):
         """Test correlation of residuals with inputs using randomised dependence coefficient"""
@@ -588,9 +700,10 @@ class RegressionDiagnosticsExpert():
             description = 'RDC on data of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
             # Save this to the knowledge base
             self.knowledge_base.append(dict(label='RDC-test-dim-data', distribution=self.conditional_distribution,
-                                            value=corr, data=self.data, description=description, p_value=p_corr))
+                                            value=corr, data=self.data, description=description, p_value=p_corr,
+                                            plot='test-data-%s' % self.data.X_labels[dim]))
 
-    def benjamini_hochberg(self, alpha=0.05):
+    def benjamini_hochberg(self, alpha=0.1):
         """Orders p-values in facts and records which facts are discoveries"""
         # FIXME - Currently assumes that knowledge base only contains p values
         # Sort facts
@@ -605,14 +718,15 @@ class RegressionDiagnosticsExpert():
         self.knowledge_base.append(dict(label='BH-discoveries', alpha=alpha, discoveries=discoveries))
 
     def run(self):
+        self.conditional_distribution.clear_cache()
         self.RMSE_test()
         self.corr_test()
-        # self.RDC_test()
-        # self.corr_test_multi_dim()
-        # self.RDC_test_multi_dim()
-        # self.corr_test_multi_dim_data()
-        # self.RDC_test_multi_dim_data()
-        # self.benjamini_hochberg(alpha=0.05)
+        self.RDC_test()
+        self.corr_test_multi_dim()
+        self.RDC_test_multi_dim()
+        self.corr_test_multi_dim_data()
+        self.RDC_test_multi_dim_data()
+        self.benjamini_hochberg(alpha=0.05)
 
 ##############################################
 #                                            #
@@ -654,10 +768,10 @@ class Manager():
         train_folds = KFold(len(train_data.y), n_folds=5, indices=False)
         train_data.set_cv_indices(train_folds)
         # Initialise list of models and experts
-        experts = [CrossValidationExpert(SKLinearModel)]#,
-                   #CrossValidationExpert(SKLassoReg),
-                   #CrossValidationExpert(BICBackwardsStepwiseLin),
-                   #CrossValidationExpert(SKLearnRandomForestReg)]
+        experts = [CrossValidationExpert(SKLinearModel),
+                   CrossValidationExpert(SKLassoReg),
+                   CrossValidationExpert(BICBackwardsStepwiseLin),
+                   CrossValidationExpert(SKLearnRandomForestReg)]
         # Train the models
         print('Experts running')
         for expert in experts:
@@ -702,8 +816,11 @@ class Manager():
         print('\nModel criticism discoveries\n')
         for fact in self.knowledge_base:
             if fact['label'] == 'BH-discoveries':
-                for discovery in fact['discoveries']:
-                    print(discovery['description'])
+                if len(fact['discoveries']) == 0:
+                    print('No deviations from the model have been discovered')
+                else:
+                    for discovery in fact['discoveries']:
+                        print(discovery['description'])
 
         # print('\nThose cross validated errors in full\n')
         # for fact in self.cv_dists:
@@ -781,10 +898,13 @@ class Manager():
 
 
 def main():
+    np.random.seed(1)
+    random.seed(1)
     data = XYDataSet()
     # data.load_from_file('../data/test-lin/simple-01.csv')
     # data.load_from_file('../data/test-lin/uci-slump-test.csv')
-    data.load_from_file('../data/test-lin/uci-housing.csv')
+    # data.load_from_file('../data/test-lin/uci-housing.csv')
+    data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
     manager = Manager()
     manager.load_data(data)
     manager.run()
