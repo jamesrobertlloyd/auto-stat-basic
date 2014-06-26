@@ -30,6 +30,7 @@ import random
 
 #### TODO
 #### - Visuals!
+#### - Calibrated outlier detection - or kolmogorov smirnov test?
 #### - Make sampling several times more efficient - I think it could be a bottleneck
 #### - Identify other bottlenecks
 #### - Make manager prefer simplicity
