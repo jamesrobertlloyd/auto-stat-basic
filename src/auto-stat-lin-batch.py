@@ -32,11 +32,10 @@ import time
 import os
 
 #### TODO
-#### - Visuals!
-#### - Calibrated outlier detection - or kolmogorov smirnov test?
-#### - Make sampling several times more efficient - I think it could be a bottleneck
-#### - Identify other bottlenecks
 #### - Make manager prefer simplicity
+#### - Good text descriptions of linear models and checking
+#### - Calibrated outlier detection - or kolmogorov smirnov test?
+#### - Identify bottlenecks
 #### - Implement stepwise regression expert that cross validates over depth
 
 ##############################################
@@ -193,7 +192,7 @@ def rank(x):
     return x.argsort().argsort()
 
 
-def RDC(x, y, k=10, s=0.2, max_data=100):
+def RDC(x, y, k=10, s=0.2, max_data=250):
     """Randomised dependency criterion"""
     # FIXME - this should be tied rank
     x = x.flatten()
@@ -1186,10 +1185,10 @@ def main():
     np.random.seed(1)
     random.seed(1)
     data = XYDataSet()
-    data.load_from_file('../data/test-lin/simple-03.csv')
+    # data.load_from_file('../data/test-lin/simple-03.csv')
     # data.load_from_file('../data/test-lin/uci-slump-test.csv')
     # data.load_from_file('../data/test-lin/uci-housing.csv')
-    # data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
+    data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
     manager = Manager()
     manager.load_data(data)
     manager.run()
