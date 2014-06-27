@@ -27,6 +27,9 @@ rcParams.update({'figure.autolayout': True})
 import numpy as np
 
 import random
+import subprocess
+import time
+import os
 
 #### TODO
 #### - Visuals!
@@ -113,8 +116,10 @@ def lin_mod_txt_description(coef, data):
     description = ''
     description += 'The output %s:' % data.y_label
     # Sort predictors by size of coefficient
-    coef_names_and_values = zip(data.X_labels, coef)
-    sorted_coef = sorted(coef_names_and_values, key=lambda a_pair: np.abs(a_pair[1]), reverse=True)
+    coef_importance = [np.abs((np.min(data.X[:,dim]) - np.max(data.X[:,dim])) * coef[dim])
+                              for dim in range(len(data.X_labels))]
+    coef_names_and_values = zip(data.X_labels, coef, coef_importance)
+    sorted_coef = sorted(coef_names_and_values, key=lambda a_pair: a_pair[2], reverse=True)
     n_predictors = 0
     for name_and_value in sorted_coef:
         name = name_and_value[0]
@@ -130,6 +135,49 @@ def lin_mod_txt_description(coef, data):
     summary = 'A linear model with %d active inputs' % n_predictors
     return summary, description
 
+def lin_mod_tex_description(coef, data):
+    """Simple tex description of linear model"""
+    tex_summary = ''
+    tex_full = ''
+    tex_summary += 'The output %s:\n\\begin{itemize}' % data.y_label
+    # Sort predictors by size of coefficient
+    coef_importance = [np.abs((np.min(data.X[:,dim]) - np.max(data.X[:,dim])) * coef[dim])
+                              for dim in range(len(data.X_labels))]
+    coef_names_and_values = zip(data.X_labels, coef, coef_importance)
+    sorted_coef = sorted(coef_names_and_values, key=lambda a_pair: a_pair[2], reverse=True)
+    n_predictors = 0
+    for name_and_value in sorted_coef:
+        name = name_and_value[0]
+        value = name_and_value[1]
+        if value > 0:
+            n_predictors += 1
+            tex_summary += '\n  \\item increases linearly with input %s' % name
+        elif value < 0:
+            n_predictors += 1
+            tex_summary += '\n  \\item decreases linearly with input %s' % name
+        tex_full += '''
+\\begin{figure}[H]
+\\newcommand{\wmgd}{0.3\columnwidth}
+\\newcommand{\mdrd}{figures}
+\\newcommand{\mbm}{\hspace{-0.3cm}}
+\\begin{center}
+\\begin{tabular}{ccc}
+%%\mbm
+\includegraphics[width=\wmgd]{\mdrd/lin-train-%(input)s} &
+\includegraphics[width=\wmgd ]{\mdrd/lin-partial-resid-%(input)s} &
+\includegraphics[width=\wmgd ]{\mdrd/lin-resid-%(input)s}
+\end{tabular}
+\\end{center}
+\caption{Stuff}
+\label{fig:train_%(input)s}
+\end{figure}
+''' % {'input' : name.replace(' ', '')}
+    if n_predictors == 0:
+        tex_summary += '\n \\item does not vary with the inputs'
+    tex_summary += '\n\\end{itemize}'
+    summary = 'A linear model with %d active inputs' % n_predictors
+    return tex_summary, tex_full
+
 
 def BIC(dist, data, n_params):
     MSE = sklearn.metrics.mean_squared_error(data.y, dist.conditional_mean(data))
@@ -144,11 +192,14 @@ def rank(x):
     return x.argsort().argsort()
 
 
-def RDC(x, y, k=10, s=0.2):
+def RDC(x, y, k=10, s=0.2, max_data=100):
     """Randomised dependency criterion"""
     # FIXME - this should be tied rank
     x = x.flatten()
     y = y.flatten()
+    if len(x) > max_data:
+        x = x[:max_data]
+        y = y[:max_data]
     x = np.vstack((rank(x) / len(x), np.ones(len(x)))).T
     y = np.vstack((rank(y) / len(y), np.ones(len(y)))).T
     x = np.sin(0.5 * s * np.dot(x, np.random.randn(2, k)))
@@ -281,7 +332,7 @@ class SKLinearModel(SKLearnModel):
             ax.set_title("Training data against %s" % self.data.X_labels[dim])
             ax.set_xlabel(self.data.X_labels[dim])
             ax.set_ylabel("Training data")
-            fig.savefig("../temp-report/figures/lin-train-%s.pdf" % self.data.X_labels[dim])
+            fig.savefig("../temp-report/figures/lin-train-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
             plt.close()
         # Plot rest of model against fit
         for dim in range(self.data.X.shape[1]):
@@ -296,7 +347,7 @@ class SKLinearModel(SKLearnModel):
             ax.set_title("Partial residual against %s" % self.data.X_labels[dim])
             ax.set_xlabel(self.data.X_labels[dim])
             ax.set_ylabel("Partial residual")
-            fig.savefig("../temp-report/figures/lin-partial-resid-%s.pdf" % self.data.X_labels[dim])
+            fig.savefig("../temp-report/figures/lin-partial-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
             plt.close()
         # Plot residuals against each dimension
         for dim in range(self.data.X.shape[1]):
@@ -308,8 +359,17 @@ class SKLinearModel(SKLearnModel):
             ax.set_title("Residuals against %s" % self.data.X_labels[dim])
             ax.set_xlabel(self.data.X_labels[dim])
             ax.set_ylabel("Residuals")
-            fig.savefig("../temp-report/figures/lin-resid-%s.pdf" % self.data.X_labels[dim])
+            fig.savefig("../temp-report/figures/lin-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
             plt.close()
+        # FIXME - this is in the wrong place
+        self.generate_tex()
+
+    def generate_tex(self):
+        tex_summary, tex_full = lin_mod_tex_description(coef=self.model.coef_, data=self.data)
+        self.knowledge_base.append(dict(label='tex-summary', text=tex_summary,
+                                        distribution=self.conditional_distributions[0], data=self.data))
+        self.knowledge_base.append(dict(label='tex-description', text=tex_full,
+                                        distribution=self.conditional_distributions[0], data=self.data))
 
 class SKLassoReg(SKLearnModel):
     """Lasso trained linear regression model"""
@@ -573,12 +633,12 @@ class RegressionDiagnosticsExpert():
         ax.set_title("Testing data against predictions")
         ax.set_xlabel("Model fit")
         ax.set_ylabel("Test residuals and sample residuals")
-        fig.savefig("../temp-report/figures/test-resid-fit.pdf")
+        fig.savefig("../temp-report/figures/test-resid.pdf")
         plt.close()
         # Save this to the knowledge base
         self.knowledge_base.append(dict(label='corr-test', distribution=self.conditional_distribution,
                                         value=corr, data=self.data, description=description, p_value=p_corr,
-                                        plot='test-resid-fit'))
+                                        plot='test-resid'))
 
     def RDC_test(self):
         """Test correlation of residuals with fit term using randomised dependence coefficient"""
@@ -597,7 +657,7 @@ class RegressionDiagnosticsExpert():
         # Save this to the knowledge base
         self.knowledge_base.append(dict(label='RDC-test', distribution=self.conditional_distribution,
                                         value=corr, data=self.data, description=description, p_value=p_corr,
-                                        plot='test-resid-fit'))
+                                        plot='test-resid'))
 
     def corr_test_multi_dim(self):
         """Test correlation of residuals with inputs using randomised dependence coefficient"""
@@ -617,7 +677,7 @@ class RegressionDiagnosticsExpert():
             # Save this to the knowledge base
             self.knowledge_base.append(dict(label='corr-test-dim', distribution=self.conditional_distribution,
                                             value=corr, data=self.data, description=description, p_value=p_corr,
-                                            plot='test-resid-%s' % self.data.X_labels[dim]))
+                                            plot='test-resid-%s' % self.data.X_labels[dim].replace(' ', '')))
             # Plot some stuff
             fig = plt.figure(figsize=(5, 4))
             ax = fig.add_subplot(1,1,1) # one row, one column, first plot
@@ -628,7 +688,7 @@ class RegressionDiagnosticsExpert():
             ax.set_title("Testing residuals against %s" % self.data.X_labels[dim])
             ax.set_xlabel(self.data.X_labels[dim])
             ax.set_ylabel("Test residuals and sample residuals")
-            fig.savefig("../temp-report/figures/test-resid-%s.pdf" % self.data.X_labels[dim])
+            fig.savefig("../temp-report/figures/test-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
             plt.close()
 
     def RDC_test_multi_dim(self):
@@ -649,7 +709,7 @@ class RegressionDiagnosticsExpert():
             # Save this to the knowledge base
             self.knowledge_base.append(dict(label='RDC-test-dim', distribution=self.conditional_distribution,
                                             value=corr, data=self.data, description=description, p_value=p_corr,
-                                            plot='test-resid-%s' % self.data.X_labels[dim]))
+                                            plot='test-resid-%s' % self.data.X_labels[dim].replace(' ', '')))
 
     def corr_test_multi_dim_data(self):
         """Test correlation of residuals with inputs using randomised dependence coefficient"""
@@ -669,7 +729,7 @@ class RegressionDiagnosticsExpert():
             # Save this to the knowledge base
             self.knowledge_base.append(dict(label='corr-test-dim-data', distribution=self.conditional_distribution,
                                             value=corr, data=self.data, description=description, p_value=p_corr,
-                                            plot='test-data-%s' % self.data.X_labels[dim]))
+                                            plot='test-data-%s' % self.data.X_labels[dim].replace(' ', '')))
             # Plot some stuff
             fig = plt.figure(figsize=(5, 4))
             ax = fig.add_subplot(1,1,1) # one row, one column, first plot
@@ -680,7 +740,7 @@ class RegressionDiagnosticsExpert():
             ax.set_title("Testing data against %s" % self.data.X_labels[dim])
             ax.set_xlabel(self.data.X_labels[dim])
             ax.set_ylabel("Test data and samples")
-            fig.savefig("../temp-report/figures/test-data-%s.pdf" % self.data.X_labels[dim])
+            fig.savefig("../temp-report/figures/test-data-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
             plt.close()
 
     def RDC_test_multi_dim_data(self):
@@ -701,9 +761,9 @@ class RegressionDiagnosticsExpert():
             # Save this to the knowledge base
             self.knowledge_base.append(dict(label='RDC-test-dim-data', distribution=self.conditional_distribution,
                                             value=corr, data=self.data, description=description, p_value=p_corr,
-                                            plot='test-data-%s' % self.data.X_labels[dim]))
+                                            plot='test-data-%s' % self.data.X_labels[dim].replace(' ', '')))
 
-    def benjamini_hochberg(self, alpha=0.1):
+    def benjamini_hochberg(self, alpha=0.05):
         """Orders p-values in facts and records which facts are discoveries"""
         # FIXME - Currently assumes that knowledge base only contains p values
         # Sort facts
@@ -717,6 +777,34 @@ class RegressionDiagnosticsExpert():
                 break
         self.knowledge_base.append(dict(label='BH-discoveries', alpha=alpha, discoveries=discoveries))
 
+    def generate_tex(self):
+        """Generates LaTeX to talk about the BH discoveries"""
+        tex = ''
+        for fact in self.knowledge_base:
+            if fact['label'] == 'BH-discoveries':
+                discoveries = fact['discoveries']
+                if len(discoveries) == 0:
+                    tex += 'No discoveries were found with a false discovery rate of %f' % fact['alpha']
+                else:
+                    for discovery in discoveries:
+                        tex += '\n%s\n' % discovery['description']
+                        tex += '''
+\\begin{figure}[H]
+\\newcommand{\wmgd}{0.3\columnwidth}
+\\newcommand{\mdrd}{figures}
+\\newcommand{\mbm}{\hspace{-0.3cm}}
+\\begin{center}
+\\begin{tabular}{c}
+%%\mbm
+\includegraphics[width=\wmgd]{\mdrd/%s}
+\end{tabular}
+\\end{center}
+\caption{Stuff}
+%%\label{fig:(code)s}
+\end{figure}
+''' % discovery['plot']
+        self.knowledge_base.append(dict(label='criticism-tex-description', text=tex))
+
     def run(self):
         self.conditional_distribution.clear_cache()
         self.RMSE_test()
@@ -725,8 +813,9 @@ class RegressionDiagnosticsExpert():
         self.corr_test_multi_dim()
         self.RDC_test_multi_dim()
         self.corr_test_multi_dim_data()
-        self.RDC_test_multi_dim_data()
+        # self.RDC_test_multi_dim_data()
         self.benjamini_hochberg(alpha=0.05)
+        self.generate_tex()
 
 ##############################################
 #                                            #
@@ -759,8 +848,9 @@ class Manager():
         # test_indices  = range(int(np.floor(len(self.data.y) / 2)), int(len(self.data.y)))
         random_perm = range(len(self.data.y))
         random.shuffle(random_perm)
-        train_indices = random_perm[:int(np.floor(len(self.data.y) / 2))]
-        test_indices  = random_perm[int(np.floor(len(self.data.y) / 2)):]
+        proportion_train = 0.5
+        train_indices = random_perm[:int(np.floor(len(self.data.y) * proportion_train))]
+        test_indices  = random_perm[int(np.floor(len(self.data.y) * proportion_train)):]
         data_sets = self.data.subsets([train_indices, test_indices])
         train_data = data_sets[0]
         test_data = data_sets[1]
@@ -768,10 +858,10 @@ class Manager():
         train_folds = KFold(len(train_data.y), n_folds=5, indices=False)
         train_data.set_cv_indices(train_folds)
         # Initialise list of models and experts
-        experts = [CrossValidationExpert(SKLinearModel),
-                   CrossValidationExpert(SKLassoReg),
-                   CrossValidationExpert(BICBackwardsStepwiseLin),
-                   CrossValidationExpert(SKLearnRandomForestReg)]
+        experts = [CrossValidationExpert(SKLinearModel)]#,
+                   # CrossValidationExpert(SKLassoReg),
+                   # CrossValidationExpert(BICBackwardsStepwiseLin),
+                   # CrossValidationExpert(SKLearnRandomForestReg)]
         # Train the models
         print('Experts running')
         for expert in experts:
@@ -890,6 +980,102 @@ class Manager():
         #         if (fact['label'] == 'RDC-test-dim-data') and (fact['data'] == test_data) and (fact['distribution'] == dist):
         #             print(fact['description'])
 
+        # Generate tex
+        tex = '''
+\documentclass{article} %% For LaTeX2e
+\usepackage{format/nips13submit_e}
+\\nipsfinalcopy %% Uncomment for camera-ready version
+\usepackage{times}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{color}
+\definecolor{mydarkblue}{rgb}{0,0.08,0.45}
+\hypersetup{
+    pdfpagemode=UseNone,
+    colorlinks=true,
+    linkcolor=mydarkblue,
+    citecolor=mydarkblue,
+    filecolor=mydarkblue,
+    urlcolor=mydarkblue,
+    pdfview=FitH}
+
+\usepackage{graphicx, amsmath, amsfonts, bm, lipsum, capt-of}
+
+\usepackage{natbib, xcolor, wrapfig, booktabs, multirow, caption}
+
+\usepackage{float}
+
+\def\ie{i.e.\ }
+\def\eg{e.g.\ }
+
+\\title{An automatic report for the dataset : XXX}
+
+\\author{
+(A very basic version of) The Automatic Statistician
+}
+
+\\newcommand{\\fix}{\marginpar{FIX}}
+\\newcommand{\\new}{\marginpar{NEW}}
+
+\setlength{\marginparwidth}{0.9in}
+\input{include/commenting.tex}
+
+%%%% For submission, make all render blank.
+%%\\renewcommand{\LATER}[1]{}
+%%\\renewcommand{\\fLATER}[1]{}
+%%\\renewcommand{\TBD}[1]{}
+%%\\renewcommand{\\fTBD}[1]{}
+%%\\renewcommand{\PROBLEM}[1]{}
+%%\\renewcommand{\\fPROBLEM}[1]{}
+%%\\renewcommand{\NA}[1]{#1}  %% Note, NA's pass through!
+
+\\begin{document}
+
+\\allowdisplaybreaks
+
+\maketitle
+
+\\begin{abstract}
+This report was produced by a very basic version of the automatic statistician
+\end{abstract}
+
+\section{Model summary}
+
+'''
+        dist = self.cv_dists[0][0]
+        for other_fact in self.knowledge_base:
+            if (other_fact['label'] == 'tex-summary') and (other_fact['distribution'] == dist):
+                tex += other_fact['text']
+
+        tex += '''
+\\section{Detailed model description}
+'''
+
+        dist = self.cv_dists[0][0]
+        for other_fact in self.knowledge_base:
+            if (other_fact['label'] == 'tex-description') and (other_fact['distribution'] == dist):
+                tex += other_fact['text']
+
+        tex += '''
+\\section{Model criticism}
+'''
+
+        dist = self.cv_dists[0][0]
+        for other_fact in self.knowledge_base:
+            if other_fact['label'] == 'criticism-tex-description':
+                tex += other_fact['text']
+
+        tex += '''
+\\end{document}
+'''
+
+        with open('../temp-report/auto-report.tex', 'w') as tex_file:
+            tex_file.write(tex)
+
+        os.chdir('../temp-report')
+        subprocess.call(['../temp-report/create_all_pdf.sh'])
+        os.chdir('../src')
+
 ##############################################
 #                                            #
 #                   Main                     #
@@ -901,10 +1087,10 @@ def main():
     np.random.seed(1)
     random.seed(1)
     data = XYDataSet()
-    # data.load_from_file('../data/test-lin/simple-01.csv')
+    data.load_from_file('../data/test-lin/simple-04.csv')
     # data.load_from_file('../data/test-lin/uci-slump-test.csv')
     # data.load_from_file('../data/test-lin/uci-housing.csv')
-    data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
+    # data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
     manager = Manager()
     manager.load_data(data)
     manager.run()

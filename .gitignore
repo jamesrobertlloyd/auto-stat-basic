@@ -68,3 +68,6 @@ notebook/notebook.pdf
 src/.idea/
 
 temp-report/figures
+temp-report/include
+temp-report/format
+temp-report/auto-report*
