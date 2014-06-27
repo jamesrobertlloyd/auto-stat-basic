@@ -135,7 +135,7 @@ def lin_mod_txt_description(coef, data):
     summary = 'A linear model with %d active inputs' % n_predictors
     return summary, description
 
-def lin_mod_tex_description(coef, data):
+def lin_mod_tex_description(coef, data, id='lin'):
     """Simple tex description of linear model"""
     tex_summary = ''
     tex_full = ''
@@ -155,7 +155,8 @@ def lin_mod_tex_description(coef, data):
         elif value < 0:
             n_predictors += 1
             tex_summary += '\n  \\item decreases linearly with input %s' % name
-        tex_full += '''
+        if value != 0:
+            tex_full += '''
 \\begin{figure}[H]
 \\newcommand{\wmgd}{0.3\columnwidth}
 \\newcommand{\mdrd}{figures}
@@ -163,15 +164,15 @@ def lin_mod_tex_description(coef, data):
 \\begin{center}
 \\begin{tabular}{ccc}
 %%\mbm
-\includegraphics[width=\wmgd]{\mdrd/lin-train-%(input)s} &
-\includegraphics[width=\wmgd ]{\mdrd/lin-partial-resid-%(input)s} &
-\includegraphics[width=\wmgd ]{\mdrd/lin-resid-%(input)s}
+\includegraphics[width=\wmgd]{\mdrd/%(id)s-train-%(input)s} &
+\includegraphics[width=\wmgd ]{\mdrd/%(id)s-partial-resid-%(input)s} &
+\includegraphics[width=\wmgd ]{\mdrd/%(id)s-resid-%(input)s}
 \end{tabular}
 \\end{center}
 \caption{Stuff}
 \label{fig:train_%(input)s}
 \end{figure}
-''' % {'input' : name.replace(' ', '')}
+''' % {'id' : id, 'input' : name.replace(' ', '')}
     if n_predictors == 0:
         tex_summary += '\n \\item does not vary with the inputs'
     tex_summary += '\n\\end{itemize}'
@@ -397,6 +398,52 @@ class SKLassoReg(SKLearnModel):
         ax.set_ylabel("Training data")
         fig.savefig("../temp-report/figures/lasso-train-fit.pdf")
         plt.close()
+        # Plot data against all dimensions
+        for dim in range(self.data.X.shape[1]):
+            fig = plt.figure(figsize=(5, 4))
+            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+            ax.scatter(self.data.X[:, dim], self.data.y, color="red", marker="o")
+            ax.set_title("Training data against %s" % self.data.X_labels[dim])
+            ax.set_xlabel(self.data.X_labels[dim])
+            ax.set_ylabel("Training data")
+            fig.savefig("../temp-report/figures/lasso-train-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
+            plt.close()
+        # Plot rest of model against fit
+        for dim in range(self.data.X.shape[1]):
+            fig = plt.figure(figsize=(5, 4))
+            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+            y_hat = self.conditional_distributions[0].conditional_mean(self.data)
+            component_fit = self.model.coef_[dim] * self.data.X[:, dim].ravel()
+            partial_resid = self.data.y - (y_hat - component_fit)
+            plot_idx = np.argsort(self.data.X[:, dim].ravel())
+            ax.plot(self.data.X[plot_idx, dim], component_fit[plot_idx], color="blue")
+            ax.scatter(self.data.X[:, dim], partial_resid, color="red", marker="o")
+            ax.set_title("Partial residual against %s" % self.data.X_labels[dim])
+            ax.set_xlabel(self.data.X_labels[dim])
+            ax.set_ylabel("Partial residual")
+            fig.savefig("../temp-report/figures/lasso-partial-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
+            plt.close()
+        # Plot residuals against each dimension
+        for dim in range(self.data.X.shape[1]):
+            fig = plt.figure(figsize=(5, 4))
+            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+            y_hat = self.conditional_distributions[0].conditional_mean(self.data)
+            resid = self.data.y - y_hat
+            ax.scatter(self.data.X[:, dim], resid, color="red", marker="o")
+            ax.set_title("Residuals against %s" % self.data.X_labels[dim])
+            ax.set_xlabel(self.data.X_labels[dim])
+            ax.set_ylabel("Residuals")
+            fig.savefig("../temp-report/figures/lasso-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
+            plt.close()
+        # FIXME - this is in the wrong place
+        self.generate_tex()
+
+    def generate_tex(self):
+        tex_summary, tex_full = lin_mod_tex_description(coef=self.model.coef_, data=self.data, id='lasso')
+        self.knowledge_base.append(dict(label='tex-summary', text=tex_summary,
+                                        distribution=self.conditional_distributions[0], data=self.data))
+        self.knowledge_base.append(dict(label='tex-description', text=tex_full,
+                                        distribution=self.conditional_distributions[0], data=self.data))
 
 class SKLearnRandomForestReg(SKLearnModel):
 
@@ -490,8 +537,60 @@ class BICBackwardsStepwiseLin(object):
         ax.set_title("Training data against fit")
         ax.set_xlabel("Model fit")
         ax.set_ylabel("Training data")
-        fig.savefig("../temp-report/figures/lin-bic-train-fit.pdf")
+        fig.savefig("../temp-report/figures/lin-train-fit.pdf")
         plt.close()
+        # Plot data against all dimensions
+        for dim in range(self.data.X.shape[1]):
+            fig = plt.figure(figsize=(5, 4))
+            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+            ax.scatter(self.data.X[:, dim], self.data.y, color="red", marker="o")
+            ax.set_title("Training data against %s" % self.data.X_labels[dim])
+            ax.set_xlabel(self.data.X_labels[dim])
+            ax.set_ylabel("Training data")
+            fig.savefig("../temp-report/figures/lin-train-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
+            plt.close()
+        # Plot rest of model against fit
+        dim_count = 0 # FIXME - this is hacky
+        for dim in range(self.data.X.shape[1]):
+            if dim in self.subset:
+                fig = plt.figure(figsize=(5, 4))
+                ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+                y_hat = self.conditional_distributions[0].conditional_mean(self.data)
+                component_fit = self.model.model.coef_[dim_count] * self.data.X[:, dim].ravel() # FIXME model.model
+                partial_resid = self.data.y - (y_hat - component_fit)
+                plot_idx = np.argsort(self.data.X[:, dim].ravel())
+                ax.plot(self.data.X[plot_idx, dim], component_fit[plot_idx], color="blue")
+                ax.scatter(self.data.X[:, dim], partial_resid, color="red", marker="o")
+                ax.set_title("Partial residual against %s" % self.data.X_labels[dim])
+                ax.set_xlabel(self.data.X_labels[dim])
+                ax.set_ylabel("Partial residual")
+                fig.savefig("../temp-report/figures/lin-partial-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
+                plt.close()
+                dim_count += 1
+        # Plot residuals against each dimension
+        for dim in range(self.data.X.shape[1]):
+            fig = plt.figure(figsize=(5, 4))
+            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+            y_hat = self.conditional_distributions[0].conditional_mean(self.data)
+            resid = self.data.y - y_hat
+            ax.scatter(self.data.X[:, dim], resid, color="red", marker="o")
+            ax.set_title("Residuals against %s" % self.data.X_labels[dim])
+            ax.set_xlabel(self.data.X_labels[dim])
+            ax.set_ylabel("Residuals")
+            fig.savefig("../temp-report/figures/lin-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
+            plt.close()
+        # FIXME - this is in the wrong place
+        self.generate_tex()
+
+    def generate_tex(self):
+        coefs = [0] * len(self.data.X_labels)
+        for (i, dim) in enumerate(self.subset):
+            coefs[dim] = self.model.model.coef_[i] # FIXME model.model
+        tex_summary, tex_full = lin_mod_tex_description(coef=coefs, data=self.data)
+        self.knowledge_base.append(dict(label='tex-summary', text=tex_summary,
+                                        distribution=self.conditional_distributions[0], data=self.data))
+        self.knowledge_base.append(dict(label='tex-description', text=tex_full,
+                                        distribution=self.conditional_distributions[0], data=self.data))
 
 ##############################################
 #                                            #
@@ -646,12 +745,12 @@ class RegressionDiagnosticsExpert():
         y_hat = self.conditional_distribution.conditional_mean(self.data)
         corr = RDC(y_hat, self.data.y - y_hat)
         # Calculate sampling distribution
-        sample_corrs = np.zeros(self.boot_iters)
-        for i in range(self.boot_iters):
+        sample_corrs = np.zeros(100) # FIXME - Magic numbers
+        for i in range(100):
             y_rep = self.conditional_distribution.conditional_sample(self.data)
             sample_corrs[i] = RDC(y_hat, y_rep - y_hat)
         # Calculate p value
-        p_corr = np.sum(sample_corrs > corr) / self.boot_iters
+        p_corr = np.sum(sample_corrs > corr) / 100
         # Generate a description of this fact
         description = 'RDC of %f which yields a p-value of %f' % (corr, p_corr)
         # Save this to the knowledge base
@@ -698,12 +797,12 @@ class RegressionDiagnosticsExpert():
             y_hat = self.conditional_distribution.conditional_mean(self.data)
             corr = RDC(self.data.X[:,dim], self.data.y - y_hat)
             # Calculate sampling distribution
-            sample_corrs = np.zeros(self.boot_iters)
-            for i in range(self.boot_iters):
+            sample_corrs = np.zeros(100) # FIXME - magic numbers
+            for i in range(100):
                 y_rep = self.conditional_distribution.conditional_sample(self.data)
                 sample_corrs[i] = RDC(self.data.X[:,dim], y_rep - y_hat)
             # Calculate p value
-            p_corr = np.sum(sample_corrs > corr) / self.boot_iters
+            p_corr = np.sum(sample_corrs > corr) / 100
             # Generate a description of this fact
             description = 'RDC on residuals of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
             # Save this to the knowledge base
@@ -750,12 +849,12 @@ class RegressionDiagnosticsExpert():
             y_hat = self.conditional_distribution.conditional_mean(self.data)
             corr = RDC(self.data.X[:,dim], self.data.y)
             # Calculate sampling distribution
-            sample_corrs = np.zeros(self.boot_iters)
-            for i in range(self.boot_iters):
+            sample_corrs = np.zeros(100) # FIXME - magic numbers
+            for i in range(100):
                 y_rep = self.conditional_distribution.conditional_sample(self.data)
                 sample_corrs[i] = RDC(self.data.X[:,dim], y_rep)
             # Calculate p value
-            p_corr = np.sum(sample_corrs > corr) / self.boot_iters
+            p_corr = np.sum(sample_corrs > corr) / 100
             # Generate a description of this fact
             description = 'RDC on data of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
             # Save this to the knowledge base
@@ -813,7 +912,7 @@ class RegressionDiagnosticsExpert():
         self.corr_test_multi_dim()
         self.RDC_test_multi_dim()
         self.corr_test_multi_dim_data()
-        # self.RDC_test_multi_dim_data()
+        self.RDC_test_multi_dim_data()
         self.benjamini_hochberg(alpha=0.05)
         self.generate_tex()
 
@@ -858,9 +957,9 @@ class Manager():
         train_folds = KFold(len(train_data.y), n_folds=5, indices=False)
         train_data.set_cv_indices(train_folds)
         # Initialise list of models and experts
-        experts = [CrossValidationExpert(SKLinearModel)]#,
-                   # CrossValidationExpert(SKLassoReg),
-                   # CrossValidationExpert(BICBackwardsStepwiseLin),
+        experts = [CrossValidationExpert(SKLinearModel),
+                   CrossValidationExpert(SKLassoReg),
+                   CrossValidationExpert(BICBackwardsStepwiseLin)]#,
                    # CrossValidationExpert(SKLearnRandomForestReg)]
         # Train the models
         print('Experts running')
@@ -889,28 +988,6 @@ class Manager():
             self.knowledge_base += checking_expert.knowledge_base
         # Report
         print('Creating report')
-
-        print('\nList of models in order of cross validated error (best first)\n')
-        for (i, fact) in enumerate(self.cv_dists):
-            dist = fact[0]
-            for other_fact in self.knowledge_base:
-                if (other_fact['label'] == 'summary') and (other_fact['distribution'] == dist):
-                    print('%d: %s' % ((i+1), other_fact['text']))
-
-        print('\nFull description of best model\n')
-        dist = self.cv_dists[0][0]
-        for other_fact in self.knowledge_base:
-            if (other_fact['label'] == 'description') and (other_fact['distribution'] == dist):
-                print(other_fact['text'])
-
-        print('\nModel criticism discoveries\n')
-        for fact in self.knowledge_base:
-            if fact['label'] == 'BH-discoveries':
-                if len(fact['discoveries']) == 0:
-                    print('No deviations from the model have been discovered')
-                else:
-                    for discovery in fact['discoveries']:
-                        print(discovery['description'])
 
         # print('\nThose cross validated errors in full\n')
         # for fact in self.cv_dists:
@@ -1076,6 +1153,28 @@ This report was produced by a very basic version of the automatic statistician
         subprocess.call(['../temp-report/create_all_pdf.sh'])
         os.chdir('../src')
 
+        print('\nList of models in order of cross validated error (best first)\n')
+        for (i, fact) in enumerate(self.cv_dists):
+            dist = fact[0]
+            for other_fact in self.knowledge_base:
+                if (other_fact['label'] == 'summary') and (other_fact['distribution'] == dist):
+                    print('%d: %s' % ((i+1), other_fact['text']))
+
+        print('\nFull description of best model\n')
+        dist = self.cv_dists[0][0]
+        for other_fact in self.knowledge_base:
+            if (other_fact['label'] == 'description') and (other_fact['distribution'] == dist):
+                print(other_fact['text'])
+
+        print('\nModel criticism discoveries\n')
+        for fact in self.knowledge_base:
+            if fact['label'] == 'BH-discoveries':
+                if len(fact['discoveries']) == 0:
+                    print('No deviations from the model have been discovered')
+                else:
+                    for discovery in fact['discoveries']:
+                        print(discovery['description'])
+
 ##############################################
 #                                            #
 #                   Main                     #
@@ -1087,7 +1186,7 @@ def main():
     np.random.seed(1)
     random.seed(1)
     data = XYDataSet()
-    data.load_from_file('../data/test-lin/simple-04.csv')
+    data.load_from_file('../data/test-lin/simple-03.csv')
     # data.load_from_file('../data/test-lin/uci-slump-test.csv')
     # data.load_from_file('../data/test-lin/uci-housing.csv')
     # data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
