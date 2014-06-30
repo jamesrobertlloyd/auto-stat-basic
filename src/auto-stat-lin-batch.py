@@ -36,7 +36,7 @@ import os
 #### - Good text descriptions of linear models and checking
 #### - Calibrated outlier detection - or kolmogorov smirnov test?
 #### - Identify bottlenecks
-#### - Implement stepwise regression expert that cross validates over depth
+#### - Re-implement a nice version of all this
 
 ##############################################
 #                                            #
@@ -192,7 +192,7 @@ def rank(x):
     return x.argsort().argsort()
 
 
-def RDC(x, y, k=10, s=0.2, max_data=250):
+def RDC(x, y, k=10, s=0.2, max_data=350):
     """Randomised dependency criterion"""
     # FIXME - this should be tied rank
     x = x.flatten()
@@ -576,7 +576,7 @@ class BICBackwardsStepwiseLin(object):
         ax.set_title("Training data against fit")
         ax.set_xlabel("Model fit")
         ax.set_ylabel("Training data")
-        fig.savefig("../temp-report/figures/lin-train-fit.pdf")
+        fig.savefig("../temp-report/figures/bic-train-fit.pdf")
         plt.close()
         # Plot data against all dimensions
         for dim in range(self.data.X.shape[1]):
@@ -586,7 +586,7 @@ class BICBackwardsStepwiseLin(object):
             ax.set_title("Training data against %s" % self.data.X_labels[dim])
             ax.set_xlabel(self.data.X_labels[dim])
             ax.set_ylabel("Training data")
-            fig.savefig("../temp-report/figures/lin-train-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
+            fig.savefig("../temp-report/figures/bic-train-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
             plt.close()
         # Plot rest of model against fit
         dim_count = 0 # FIXME - this is hacky
@@ -603,7 +603,7 @@ class BICBackwardsStepwiseLin(object):
                 ax.set_title("Partial residual against %s" % self.data.X_labels[dim])
                 ax.set_xlabel(self.data.X_labels[dim])
                 ax.set_ylabel("Partial residual")
-                fig.savefig("../temp-report/figures/lin-partial-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
+                fig.savefig("../temp-report/figures/bic-partial-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
                 plt.close()
                 dim_count += 1
         # Plot residuals against each dimension
@@ -616,7 +616,7 @@ class BICBackwardsStepwiseLin(object):
             ax.set_title("Residuals against %s" % self.data.X_labels[dim])
             ax.set_xlabel(self.data.X_labels[dim])
             ax.set_ylabel("Residuals")
-            fig.savefig("../temp-report/figures/lin-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
+            fig.savefig("../temp-report/figures/bic-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
             plt.close()
         # FIXME - this is in the wrong place
         self.generate_tex()
@@ -625,7 +625,7 @@ class BICBackwardsStepwiseLin(object):
         coefs = [0] * len(self.data.X_labels)
         for (i, dim) in enumerate(self.subset):
             coefs[dim] = self.model.model.coef_[i] # FIXME model.model
-        tex_summary, tex_full = lin_mod_tex_description(coef=coefs, data=self.data)
+        tex_summary, tex_full = lin_mod_tex_description(coef=coefs, data=self.data, id='bic')
         self.knowledge_base.append(dict(label='tex-summary', text=tex_summary,
                                         distribution=self.conditional_distributions[0], data=self.data))
         self.knowledge_base.append(dict(label='tex-description', text=tex_full,
@@ -773,10 +773,69 @@ class RegressionDiagnosticsExpert():
         ax.set_ylabel("Test residuals and sample residuals")
         fig.savefig("../temp-report/figures/test-resid.pdf")
         plt.close()
+        # Plot histogram
+        fig = plt.figure(figsize=(5, 4))
+        ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+        ax.hist(sample_corrs, bins=20, color='blue')
+        ax.axvline(corr, color='red', linestyle='dashed', linewidth=2)
+        ax.set_title("Histogram of correlation")
+        ax.set_xlabel('Correlation coefficient')
+        ax.set_ylabel("Frequency")
+        fig.savefig("../temp-report/figures/test-resid-corr-hist.pdf")
+        plt.close()
+        # Generate a description of this fact - larger correlation than expected
+        median_corr = np.median(sample_corrs)
+        # Calculate p value
+        p_corr = np.sum(sample_corrs > corr) / self.boot_iters
+        code = 'fig:corr-resid-high'
+        if corr > median_corr:
+            description = 'There is an unexpectedly high correlation between the residuals ' + \
+                          'and model fit (see figure \\ref{%s}a).' % code
+            if corr > median_corr + 0.2:
+                qualifier = 'substantially'
+            else:
+                qualifier = 'slightly'
+            description += '\nThe correlation has a ' + \
+                           '%s larger value of %0.2f' % (qualifier, corr) + \
+                           ' compared to its median value under the proposed model of %0.2f' % median_corr
+            description += ' (see figure \\ref{%s}b).' % code
+        else:
+            description = 'There is nothing remarkable to see here.'
+        caption = 'a) Test set and model sample residuals. b) Histogram of correlation coefficient evaluated on random samples from the model and value on test data (dashed line).'
         # Save this to the knowledge base
         self.knowledge_base.append(dict(label='corr-test', distribution=self.conditional_distribution,
                                         value=corr, data=self.data, description=description, p_value=p_corr,
-                                        plot='test-resid'))
+                                        plots=['test-resid',
+                                               'test-resid-corr-hist'],
+                                        code=code, caption=caption,
+                                        title='High correlation between residuals and model fit'))
+        # Generate a description of this fact - smaller correlation than expected
+        median_corr = np.median(sample_corrs)
+        # Calculate p value
+        p_corr = np.sum(sample_corrs < corr) / self.boot_iters
+        code = 'fig:corr-resid-low'
+        if corr < median_corr:
+            description = 'There is an unexpectedly low correlation between the residuals ' + \
+                          'and model fit (see figure \\ref{%s}a).' % code
+            if corr < median_corr - 0.2:
+                qualifier = 'substantially'
+            else:
+                qualifier = 'slightly'
+            description += '\nThe correlation has a ' + \
+                           '%s smaller value of %0.2f' % (qualifier, corr) + \
+                           ' compared to its median value under the proposed model of %0.2f' % median_corr
+            description += ' (see figure \\ref{%s}b).' % code
+        else:
+            description = 'There is nothing remarkable to see here.'
+        caption = 'a) Test set and model sample residuals. b) Histogram of correlation evaluated on random samples from the model and value on test data (dashed line).'
+        # Save this to the knowledge base
+        self.knowledge_base.append(dict(label='corr-test-dim', distribution=self.conditional_distribution,
+                                        value=corr, data=self.data, description=description, p_value=p_corr,
+                                        plots=['test-resid',
+                                               'test-resid-corr-hist'],
+                                        code=code, caption=caption,
+                                        title='Low correlation between residuals and model fit'))
+
 
     def RDC_test(self):
         """Test correlation of residuals with fit term using randomised dependence coefficient"""
@@ -788,34 +847,53 @@ class RegressionDiagnosticsExpert():
         for i in range(100):
             y_rep = self.conditional_distribution.conditional_sample(self.data)
             sample_corrs[i] = RDC(y_hat, y_rep - y_hat)
-        # Calculate p value
-        p_corr = np.sum(sample_corrs > corr) / 100
+        # Plot histogram
+        fig = plt.figure(figsize=(5, 4))
+        ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+        ax.hist(sample_corrs, bins=20, color='blue')
+        ax.axvline(corr, color='red', linestyle='dashed', linewidth=2)
+        ax.set_title("Histogram of RDC")
+        ax.set_xlabel("RDC")
+        ax.set_ylabel("Frequency")
+        fig.savefig("../temp-report/figures/test-resid-rdc-hist.pdf")
+        plt.close()
         # Generate a description of this fact
-        description = 'RDC of %f which yields a p-value of %f' % (corr, p_corr)
+        median_corr = np.median(sample_corrs)
+        p_corr = np.sum(sample_corrs > corr) / self.boot_iters
+        code = 'fig:RDC-resid'
+        if corr > median_corr:
+            description = 'There is an unexpectedly high dependence between the residuals ' + \
+                          'and model fit (see figure \\ref{%s}a).' % code
+            if corr > median_corr + 0.2:
+                qualifier = 'substantially'
+            else:
+                qualifier = 'slightly'
+            description += '\nThe dependence as measured by the randomised dependency coefficient (RDC) has a ' + \
+                           '%s larger value of %0.2f' % (qualifier, corr) + \
+                           ' compared to its median value under the proposed model of %0.2f' % median_corr
+            description += ' (see figure \\ref{%s}b).' % code
+        else:
+            description = 'There is nothing remarkable to see here.'
+        caption = 'a) Test set and model sample residuals. b) Histogram of RDC evaluated on random samples from the model and value on test data (dashed line).'
         # Save this to the knowledge base
         self.knowledge_base.append(dict(label='RDC-test', distribution=self.conditional_distribution,
                                         value=corr, data=self.data, description=description, p_value=p_corr,
-                                        plot='test-resid'))
+                                        plots=['test-resid',
+                                               'test-resid-rdc-hist'],
+                                        code=code, caption=caption,
+                                        title='High dependence between residuals and model fit'))
 
     def corr_test_multi_dim(self):
         """Test correlation of residuals with inputs using randomised dependence coefficient"""
         for dim in range(self.data.X.shape[1]):
             # Compute statistics on data
             y_hat = self.conditional_distribution.conditional_mean(self.data)
-            corr = abs(stats.pearsonr(self.data.X[:,dim], self.data.y - y_hat)[0])
+            corr = stats.pearsonr(self.data.X[:,dim], self.data.y - y_hat)[0]
             # Calculate sampling distribution
             sample_corrs = np.zeros(self.boot_iters)
             for i in range(self.boot_iters):
                 y_rep = self.conditional_distribution.conditional_sample(self.data)
-                sample_corrs[i] = abs(stats.pearsonr(self.data.X[:,dim], y_rep - y_hat)[0])
-            # Calculate p value
-            p_corr = np.sum(sample_corrs > corr) / self.boot_iters
-            # Generate a description of this fact
-            description = 'Correlation on residuals of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
-            # Save this to the knowledge base
-            self.knowledge_base.append(dict(label='corr-test-dim', distribution=self.conditional_distribution,
-                                            value=corr, data=self.data, description=description, p_value=p_corr,
-                                            plot='test-resid-%s' % self.data.X_labels[dim].replace(' ', '')))
+                sample_corrs[i] = stats.pearsonr(self.data.X[:,dim], y_rep - y_hat)[0]
             # Plot some stuff
             fig = plt.figure(figsize=(5, 4))
             ax = fig.add_subplot(1,1,1) # one row, one column, first plot
@@ -828,6 +906,68 @@ class RegressionDiagnosticsExpert():
             ax.set_ylabel("Test residuals and sample residuals")
             fig.savefig("../temp-report/figures/test-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
             plt.close()
+            # Plot histogram
+            fig = plt.figure(figsize=(5, 4))
+            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+            ax.hist(sample_corrs, bins=20, color='blue')
+            ax.axvline(corr, color='red', linestyle='dashed', linewidth=2)
+            ax.set_title("Histogram of correlation")
+            ax.set_xlabel('Correlation coefficient')
+            ax.set_ylabel("Frequency")
+            fig.savefig("../temp-report/figures/test-resid-corr-hist-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
+            plt.close()
+            # Generate a description of this fact - larger correlation than expected
+            median_corr = np.median(sample_corrs)
+            # Calculate p value
+            p_corr = np.sum(sample_corrs > corr) / self.boot_iters
+            code = 'fig:corr-resid-high-%s' % self.data.X_labels[dim].replace(' ', '')
+            if corr > median_corr:
+                description = 'There is an unexpectedly high correlation between the residuals ' + \
+                              'and variable %s (see figure \\ref{%s}a).' % (self.data.X_labels[dim], code)
+                if corr > median_corr + 0.2:
+                    qualifier = 'substantially'
+                else:
+                    qualifier = 'slightly'
+                description += '\nThe correlation has a ' + \
+                               '%s larger value of %0.2f' % (qualifier, corr) + \
+                               ' compared to its median value under the proposed model of %0.2f' % median_corr
+                description += ' (see figure \\ref{%s}b).' % code
+            else:
+                description = 'There is nothing remarkable to see here.'
+            caption = 'a) Test set and model sample residuals. b) Histogram of correlation coefficient evaluated on random samples from the model and value on test data (dashed line).'
+            # Save this to the knowledge base
+            self.knowledge_base.append(dict(label='corr-test-dim', distribution=self.conditional_distribution,
+                                            value=corr, data=self.data, description=description, p_value=p_corr,
+                                            plots=['test-resid-%s' % self.data.X_labels[dim].replace(' ', ''),
+                                                   'test-resid-corr-hist-%s' % self.data.X_labels[dim].replace(' ', '')],
+                                            code=code, caption=caption,
+                                            title='High correlation between residuals and %s' % self.data.X_labels[dim]))
+            # Generate a description of this fact - smaller correlation than expected
+            median_corr = np.median(sample_corrs)
+            # Calculate p value
+            p_corr = np.sum(sample_corrs < corr) / self.boot_iters
+            code = 'fig:corr-resid-low-%s' % self.data.X_labels[dim].replace(' ', '')
+            if corr < median_corr:
+                description = 'There is an unexpectedly low correlation between the residuals ' + \
+                              'and variable %s (see figure \\ref{%s}a).' % (self.data.X_labels[dim], code)
+                if corr < median_corr - 0.2:
+                    qualifier = 'substantially'
+                else:
+                    qualifier = 'slightly'
+                description += '\nThe correlation has a ' + \
+                               '%s smaller value of %0.2f' % (qualifier, corr) + \
+                               ' compared to its median value under the proposed model of %0.2f' % median_corr
+                description += ' (see figure \\ref{%s}b).' % code
+            else:
+                description = 'There is nothing remarkable to see here.'
+            caption = 'a) Test set and model sample residuals. b) Histogram of correlation evaluated on random samples from the model and value on test data (dashed line).'
+            # Save this to the knowledge base
+            self.knowledge_base.append(dict(label='corr-test-dim', distribution=self.conditional_distribution,
+                                            value=corr, data=self.data, description=description, p_value=p_corr,
+                                            plots=['test-resid-%s' % self.data.X_labels[dim].replace(' ', ''),
+                                                   'test-resid-corr-hist-%s' % self.data.X_labels[dim].replace(' ', '')],
+                                            code=code, caption=caption,
+                                            title='Low correlation between residuals and %s' % self.data.X_labels[dim]))
 
     def RDC_test_multi_dim(self):
         """Test correlation of residuals with inputs using randomised dependence coefficient"""
@@ -842,32 +982,52 @@ class RegressionDiagnosticsExpert():
                 sample_corrs[i] = RDC(self.data.X[:,dim], y_rep - y_hat)
             # Calculate p value
             p_corr = np.sum(sample_corrs > corr) / 100
+            # Plot histogram
+            fig = plt.figure(figsize=(5, 4))
+            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+            ax.hist(sample_corrs, bins=20, color='blue')
+            ax.axvline(corr, color='red', linestyle='dashed', linewidth=2)
+            ax.set_title("Histogram of RDC")
+            ax.set_xlabel("RDC")
+            ax.set_ylabel("Frequency")
+            fig.savefig("../temp-report/figures/test-resid-rdc-hist-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
+            plt.close()
             # Generate a description of this fact
-            description = 'RDC on residuals of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
+            median_corr = np.median(sample_corrs)
+            code = 'fig:RDC-resid-%s' % self.data.X_labels[dim].replace(' ', '')
+            if corr > median_corr:
+                description = 'There is an unexpectedly high dependence between the residuals ' + \
+                              'and variable %s (see figure \\ref{%s}a).' % (self.data.X_labels[dim], code)
+                if corr > median_corr + 0.2:
+                    qualifier = 'substantially'
+                else:
+                    qualifier = 'slightly'
+                description += '\nThe dependence as measured by the randomised dependency coefficient (RDC) has a ' + \
+                               '%s larger value of %0.2f' % (qualifier, corr) + \
+                               ' compared to its median value under the proposed model of %0.2f' % median_corr
+                description += ' (see figure \\ref{%s}b).' % code
+            else:
+                description = 'There is nothing remarkable to see here.'
+            caption = 'a) Test set and model sample residuals. b) Histogram of RDC evaluated on random samples from the model and value on test data (dashed line).'
             # Save this to the knowledge base
             self.knowledge_base.append(dict(label='RDC-test-dim', distribution=self.conditional_distribution,
                                             value=corr, data=self.data, description=description, p_value=p_corr,
-                                            plot='test-resid-%s' % self.data.X_labels[dim].replace(' ', '')))
+                                            plots=['test-resid-%s' % self.data.X_labels[dim].replace(' ', ''),
+                                                   'test-resid-rdc-hist-%s' % self.data.X_labels[dim].replace(' ', '')],
+                                            code=code, caption=caption,
+                                            title='High dependence between residuals and %s' % self.data.X_labels[dim]))
 
     def corr_test_multi_dim_data(self):
-        """Test correlation of residuals with inputs using randomised dependence coefficient"""
+        """Test correlation of data with inputs using randomised dependence coefficient"""
         for dim in range(self.data.X.shape[1]):
             # Compute statistics on data
             y_hat = self.conditional_distribution.conditional_mean(self.data)
-            corr = abs(stats.pearsonr(self.data.X[:,dim], self.data.y)[0])
+            corr = stats.pearsonr(self.data.X[:,dim], self.data.y)[0]
             # Calculate sampling distribution
             sample_corrs = np.zeros(self.boot_iters)
             for i in range(self.boot_iters):
                 y_rep = self.conditional_distribution.conditional_sample(self.data)
-                sample_corrs[i] = abs(stats.pearsonr(self.data.X[:,dim], y_rep)[0])
-            # Calculate p value
-            p_corr = np.sum(sample_corrs > corr) / self.boot_iters
-            # Generate a description of this fact
-            description = 'Correlation on data of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
-            # Save this to the knowledge base
-            self.knowledge_base.append(dict(label='corr-test-dim-data', distribution=self.conditional_distribution,
-                                            value=corr, data=self.data, description=description, p_value=p_corr,
-                                            plot='test-data-%s' % self.data.X_labels[dim].replace(' ', '')))
+                sample_corrs[i] = stats.pearsonr(self.data.X[:,dim], y_rep)[0]
             # Plot some stuff
             fig = plt.figure(figsize=(5, 4))
             ax = fig.add_subplot(1,1,1) # one row, one column, first plot
@@ -879,10 +1039,71 @@ class RegressionDiagnosticsExpert():
             ax.set_xlabel(self.data.X_labels[dim])
             ax.set_ylabel("Test data and samples")
             fig.savefig("../temp-report/figures/test-data-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
+            plt.close()            # Plot histogram
+            fig = plt.figure(figsize=(5, 4))
+            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+            ax.hist(sample_corrs, bins=20, color='blue')
+            ax.axvline(corr, color='red', linestyle='dashed', linewidth=2)
+            ax.set_title("Histogram of correlation")
+            ax.set_xlabel('Correlation coefficient')
+            ax.set_ylabel("Frequency")
+            fig.savefig("../temp-report/figures/test-data-corr-hist-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
             plt.close()
+            # Generate a description of this fact - larger correlation than expected
+            median_corr = np.median(sample_corrs)
+            # Calculate p value
+            p_corr = np.sum(sample_corrs > corr) / self.boot_iters
+            code = 'fig:corr-data-high-%s' % self.data.X_labels[dim].replace(' ', '')
+            if corr > median_corr:
+                description = 'There is an unexpectedly high correlation between the data ' + \
+                              'and variable %s (see figure \\ref{%s}a).' % (self.data.X_labels[dim], code)
+                if corr > median_corr + 0.2:
+                    qualifier = 'substantially'
+                else:
+                    qualifier = 'slightly'
+                description += '\nThe correlation has a ' + \
+                               '%s larger value of %0.2f' % (qualifier, corr) + \
+                               ' compared to its median value under the proposed model of %0.2f' % median_corr
+                description += ' (see figure \\ref{%s}b).' % code
+            else:
+                description = 'There is nothing remarkable to see here.'
+            caption = 'a) Test set and model samples. b) Histogram of correlation coefficient evaluated on random samples from the model and value on test data (dashed line).'
+            # Save this to the knowledge base
+            self.knowledge_base.append(dict(label='corr-test-dim-data', distribution=self.conditional_distribution,
+                                            value=corr, data=self.data, description=description, p_value=p_corr,
+                                            plots=['test-data-%s' % self.data.X_labels[dim].replace(' ', ''),
+                                                   'test-data-corr-hist-%s' % self.data.X_labels[dim].replace(' ', '')],
+                                            code=code, caption=caption,
+                                            title='High correlation between data and %s' % self.data.X_labels[dim]))
+            # Generate a description of this fact - smaller correlation than expected
+            median_corr = np.median(sample_corrs)
+            # Calculate p value
+            p_corr = np.sum(sample_corrs < corr) / self.boot_iters
+            code = 'fig:corr-data-low-%s' % self.data.X_labels[dim].replace(' ', '')
+            if corr < median_corr:
+                description = 'There is an unexpectedly low correlation between the data ' + \
+                              'and variable %s (see figure \\ref{%s}a).' % (self.data.X_labels[dim], code)
+                if corr < median_corr - 0.2:
+                    qualifier = 'substantially'
+                else:
+                    qualifier = 'slightly'
+                description += '\nThe correlation has a ' + \
+                               '%s smaller value of %0.2f' % (qualifier, corr) + \
+                               ' compared to its median value under the proposed model of %0.2f' % median_corr
+                description += ' (see figure \\ref{%s}b).' % code
+            else:
+                description = 'There is nothing remarkable to see here.'
+            caption = 'a) Test set and model samples. b) Histogram of correlation evaluated on random samples from the model and value on test data (dashed line).'
+            # Save this to the knowledge base
+            self.knowledge_base.append(dict(label='corr-test-dim', distribution=self.conditional_distribution,
+                                            value=corr, data=self.data, description=description, p_value=p_corr,
+                                            plots=['test-data-%s' % self.data.X_labels[dim].replace(' ', ''),
+                                                   'test-data-corr-hist-%s' % self.data.X_labels[dim].replace(' ', '')],
+                                            code=code, caption=caption,
+                                            title='Low correlation between data and %s' % self.data.X_labels[dim]))
 
     def RDC_test_multi_dim_data(self):
-        """Test correlation of residuals with inputs using randomised dependence coefficient"""
+        """Test correlation of data with inputs using randomised dependence coefficient"""
         for dim in range(self.data.X.shape[1]):
             # Compute statistics on data
             y_hat = self.conditional_distribution.conditional_mean(self.data)
@@ -894,14 +1115,42 @@ class RegressionDiagnosticsExpert():
                 sample_corrs[i] = RDC(self.data.X[:,dim], y_rep)
             # Calculate p value
             p_corr = np.sum(sample_corrs > corr) / 100
+            # Plot histogram
+            fig = plt.figure(figsize=(5, 4))
+            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+            ax.hist(sample_corrs, bins=20, color='blue')
+            ax.axvline(corr, color='red', linestyle='dashed', linewidth=2)
+            ax.set_title("Histogram of RDC")
+            ax.set_xlabel("RDC")
+            ax.set_ylabel("Frequency")
+            fig.savefig("../temp-report/figures/test-data-rdc-hist-%s.pdf" % self.data.X_labels[dim].replace(' ', ''))
+            plt.close()
             # Generate a description of this fact
-            description = 'RDC on data of %f on %s which yields a p-value of %f' % (corr, self.data.X_labels[dim], p_corr)
+            median_corr = np.median(sample_corrs)
+            code = 'fig:RDC-data-%s' % self.data.X_labels[dim].replace(' ', '')
+            if corr > median_corr:
+                description = 'There is an unexpectedly high dependence between the data ' + \
+                              'and variable %s (see figure \\ref{%s}a).' % (self.data.X_labels[dim], code)
+                if corr > median_corr + 0.2:
+                    qualifier = 'substantially'
+                else:
+                    qualifier = 'slightly'
+                description += '\nThe dependence as measured by the randomised dependency coefficient (RDC) has a ' + \
+                               '%s larger value of %0.2f' % (qualifier, corr) + \
+                               ' compared to its median value under the proposed model of %0.2f' % median_corr
+                description += ' (see figure \\ref{%s}b).' % code
+            else:
+                description = 'There is nothing remarkable to see here.'
+            caption = 'a) Test set and model samples. b) Histogram of RDC evaluated on random samples from the model and value on test data (dashed line).'
             # Save this to the knowledge base
             self.knowledge_base.append(dict(label='RDC-test-dim-data', distribution=self.conditional_distribution,
                                             value=corr, data=self.data, description=description, p_value=p_corr,
-                                            plot='test-data-%s' % self.data.X_labels[dim].replace(' ', '')))
+                                            plots=['test-data-%s' % self.data.X_labels[dim].replace(' ', ''),
+                                                   'test-data-rdc-hist-%s' % self.data.X_labels[dim].replace(' ', '')],
+                                            code=code, caption=caption,
+                                            title='High dependence between data and %s' % self.data.X_labels[dim]))
 
-    def benjamini_hochberg(self, alpha=0.05):
+    def benjamini_hochberg(self, alpha=0.10):
         """Orders p-values in facts and records which facts are discoveries"""
         # FIXME - Currently assumes that knowledge base only contains p values
         # Sort facts
@@ -917,14 +1166,20 @@ class RegressionDiagnosticsExpert():
 
     def generate_tex(self):
         """Generates LaTeX to talk about the BH discoveries"""
-        tex = ''
+        tex = '''
+In this section I have attempted to falsify the model I have presented above by comparing its distribution with data I held out from the model fitting stage.
+In particular, I have searched for correlations and dependencies within the data that are unexpectedly large or too small.
+This does not include explicit tests of outliers or other distributional assumptions but will hopefully capture any particularly obvious failings of the model.
+Below are a list of the discrepancies I have found with the most surprising first.
+'''
         for fact in self.knowledge_base:
             if fact['label'] == 'BH-discoveries':
                 discoveries = fact['discoveries']
                 if len(discoveries) == 0:
-                    tex += 'No discoveries were found with a false discovery rate of %f' % fact['alpha']
+                    tex += '\nNo discoveries were found with a false discovery rate of %f' % fact['alpha']
                 else:
                     for discovery in discoveries:
+                        tex += '\n\\paragraph{%s}\n' % discovery['title']
                         tex += '\n%s\n' % discovery['description']
                         tex += '''
 \\begin{figure}[H]
@@ -932,27 +1187,29 @@ class RegressionDiagnosticsExpert():
 \\newcommand{\mdrd}{figures}
 \\newcommand{\mbm}{\hspace{-0.3cm}}
 \\begin{center}
-\\begin{tabular}{c}
+\\begin{tabular}{cc}
 %%\mbm
-\includegraphics[width=\wmgd]{\mdrd/%s}
+\includegraphics[width=\wmgd]{\mdrd/%s} &
+\includegraphics[width=\wmgd]{\mdrd/%s} \\\\
+a) & b)
 \end{tabular}
 \\end{center}
-\caption{Stuff}
-%%\label{fig:(code)s}
+\caption{%s}
+\label{%s}
 \end{figure}
-''' % discovery['plot']
+''' % (discovery['plots'][0], discovery['plots'][1], discovery['caption'], discovery['code'])
         self.knowledge_base.append(dict(label='criticism-tex-description', text=tex))
 
     def run(self):
         self.conditional_distribution.clear_cache()
-        self.RMSE_test()
+        # self.RMSE_test()
         self.corr_test()
         self.RDC_test()
         self.corr_test_multi_dim()
         self.RDC_test_multi_dim()
         self.corr_test_multi_dim_data()
         self.RDC_test_multi_dim_data()
-        self.benjamini_hochberg(alpha=0.05)
+        self.benjamini_hochberg(alpha=0.10)
         self.generate_tex()
 
 ##############################################
@@ -1152,7 +1409,7 @@ class Manager():
 \maketitle
 
 \\begin{abstract}
-This report was produced by a very basic version of the automatic statistician
+This is a report analysing the dataset XXX.
 \end{abstract}
 
 \section{Model summary}
@@ -1212,7 +1469,7 @@ This report was produced by a very basic version of the automatic statistician
                     print('No deviations from the model have been discovered')
                 else:
                     for discovery in fact['discoveries']:
-                        print(discovery['description'])
+                        print('%s\n' % discovery['description'])
 
 ##############################################
 #                                            #
@@ -1225,10 +1482,10 @@ def main():
     np.random.seed(1)
     random.seed(1)
     data = XYDataSet()
-    data.load_from_file('../data/test-lin/simple-04.csv')
+    # data.load_from_file('../data/test-lin/simple-04.csv')
     # data.load_from_file('../data/test-lin/uci-slump-test.csv')
     # data.load_from_file('../data/test-lin/uci-housing.csv')
-    # data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
+    data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
     manager = Manager()
     manager.load_data(data)
     manager.run()
