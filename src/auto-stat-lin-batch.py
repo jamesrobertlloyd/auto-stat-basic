@@ -218,6 +218,24 @@ def RDC(x, y, k=10, s=0.2, max_data=250):
 ##############################################
 
 
+class MeanPlusGaussian(object):
+    """Conditional distribution - mean plus iid Gaussian noise"""
+
+    def __init__(self, mean, sd):
+        self.mean = mean
+        self.sd = sd
+
+    def clear_cache(self):
+        # FIXME - this is not how caching should work - SUCH A HACK
+        pass
+
+    def conditional_mean(self, data):
+        return self.mean * np.ones((data.X.shape[0])).ravel()
+
+    def conditional_sample(self, data):
+        return (self.conditional_mean(data) + (self.sd * np.random.randn(data.X.shape[0], 1)).ravel()).ravel()
+
+
 class SKLearnModelPlusGaussian(object):
     """Conditional distribution based on sklearn model with iid Gaussian noise"""
 
@@ -268,6 +286,12 @@ class SKLearnModelInputFilteredPlusGaussian(object):
 #                  Models                    #
 #                                            #
 ##############################################
+
+
+class DistributionModel(object):
+    """Wrapper for a distribution"""
+    def __init__(self, dist):
+        self.conditional_distributions = [dist]
 
 
 class SKLearnModel(object):
@@ -497,15 +521,23 @@ class BICBackwardsStepwiseLin(object):
             # Try removing all input variables
             for i in range(len(self.subset)):
                 temp_subset = self.subset[:i] + self.subset[(i+1):]
-                temp_data_set = self.data.input_subset(temp_subset)
-                temp_model = SKLinearModel()
-                temp_model.load_data(temp_data_set)
-                temp_model.run()
-                temp_BIC = BIC(temp_model.conditional_distributions[0], temp_data_set, len(temp_model.model.coef_))
-                if temp_BIC < best_BIC:
-                    best_model = temp_model
-                    best_subset = temp_subset
-                    best_BIC = temp_BIC
+                if len(temp_subset) > 0:
+                    temp_data_set = self.data.input_subset(temp_subset)
+                    temp_model = SKLinearModel()
+                    temp_model.load_data(temp_data_set)
+                    temp_model.run()
+                    temp_BIC = BIC(temp_model.conditional_distributions[0], temp_data_set, len(temp_model.model.coef_))
+                    if temp_BIC < best_BIC:
+                        best_model = temp_model
+                        best_subset = temp_subset
+                        best_BIC = temp_BIC
+                else:
+                    temp_dist = MeanPlusGaussian(mean=self.data.y.mean(), sd=0)
+                    temp_BIC = BIC(temp_dist, self.data, 0)
+                    if temp_BIC < best_BIC:
+                        best_model = DistributionModel(temp_dist)
+                        best_subset = temp_subset
+                        best_BIC = temp_BIC
             if best_BIC < current_BIC:
                 improvement = True
                 self.model = best_model
@@ -514,12 +546,20 @@ class BICBackwardsStepwiseLin(object):
         y_hat = self.model.conditional_distributions[0].conditional_mean(self.data.input_subset(self.subset))
         sd = np.sqrt((sklearn.metrics.mean_squared_error(self.data.y, y_hat)))
         #### FIXME - model.model is clearly ugly :)
-        self.conditional_distributions = [SKLearnModelInputFilteredPlusGaussian(self.model.model, sd, self.subset)]
+        if len(self.subset) > 0:
+            self.conditional_distributions = [SKLearnModelInputFilteredPlusGaussian(self.model.model, sd, self.subset)]
+        else:
+            self.conditional_distributions = [self.model.conditional_distributions[0]]
+            self.conditional_distributions[0].sd = sd
         self.generate_descriptions()
 
     def generate_descriptions(self):
-        summary, description = lin_mod_txt_description(coef=self.model.model.coef_,
-                                                       data=self.data.input_subset(self.subset))
+        if len(self.subset) > 0:
+            summary, description = lin_mod_txt_description(coef=self.model.model.coef_,
+                                                           data=self.data.input_subset(self.subset))
+        else:
+            summary, description = lin_mod_txt_description(coef=[],
+                                                           data=self.data.input_subset(self.subset))
         self.knowledge_base.append(dict(label='summary', text=summary,
                                         distribution=self.conditional_distributions[0], data=self.data))
         self.knowledge_base.append(dict(label='description', text=description,
@@ -1185,10 +1225,10 @@ def main():
     np.random.seed(1)
     random.seed(1)
     data = XYDataSet()
-    # data.load_from_file('../data/test-lin/simple-03.csv')
+    data.load_from_file('../data/test-lin/simple-04.csv')
     # data.load_from_file('../data/test-lin/uci-slump-test.csv')
     # data.load_from_file('../data/test-lin/uci-housing.csv')
-    data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
+    # data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
     manager = Manager()
     manager.load_data(data)
     manager.run()
