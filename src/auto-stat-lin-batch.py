@@ -34,7 +34,8 @@ import os
 #### TODO
 #### - Make manager prefer simplicity
 #### - Calibrated outlier detection - or kolmogorov smirnov test?
-#### - Multiple parameters of RDC?
+#### - Multiple parameters of RDC to combat variability?
+#### - Sanitize inputs for LaTeX - spaces, punctuation...
 #### - Identify bottlenecks
 #### - Re-implement a nice version of all this
 
@@ -1270,7 +1271,7 @@ Below are a list of the discrepancies that I have found with the most surprising
             if fact['label'] == 'BH-discoveries':
                 discoveries = fact['discoveries']
                 if len(discoveries) == 0:
-                    tex += '\nNo discoveries were found with a false discovery rate of %f' % fact['alpha']
+                    tex += '\nNo discoveries were found with a false discovery rate of %d\\%%.' % (fact['alpha'] * 100)
                 else:
                     for discovery in discoveries:
                         tex += '\n\\paragraph{%s}\n' % discovery['title']
@@ -1598,7 +1599,7 @@ A quick summary is below, followed by quantification of the model with accompany
 \\end{document}
 '''
 
-        with open('../temp-report/auto-report.tex', 'w') as tex_file:
+        with open('../temp-report/auto-report-%s.tex' % self.data.name, 'w') as tex_file:
             tex_file.write(tex)
 
         os.chdir('../temp-report')
@@ -1638,10 +1639,10 @@ def main():
     np.random.seed(1)
     random.seed(1)
     data = XYDataSet()
-    # data.load_from_file('../data/test-lin/simple-04.csv')
+    # data.load_from_file('../data/test-lin/simple-03.csv')
     # data.load_from_file('../data/test-lin/uci-slump-test.csv')
-    # data.load_from_file('../data/test-lin/uci-housing.csv')
-    data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
+    data.load_from_file('../data/test-lin/uci-housing.csv')
+    # data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
     manager = Manager()
     manager.load_data(data)
     manager.run()
