@@ -54,6 +54,7 @@ class XYDataSet():
         self.X = None
         self.y = None
         self.cv_indices = None
+        self.name = ''
 
     def set_cv_indices(self, cv_indices):
         """Cross validation scheme"""
@@ -69,6 +70,7 @@ class XYDataSet():
             labels = data_file.readline().strip().split(',')
             self.X_labels = labels[:-1]
             self.y_label = labels[-1]
+        self.name = os.path.splitext(os.path.split(fname)[-1])[0]
 
     def subsets(self, indices_list):
         """Given list of indices it returns lists of subset data sets"""
@@ -134,7 +136,7 @@ def lin_mod_txt_description(coef, data):
     summary = 'A linear model with %d active inputs' % n_predictors
     return summary, description
 
-def lin_mod_tex_description(coef, data, id='lin'):
+def lin_mod_tex_description(coef, data, id='lin', y_hat=None):
     """Simple tex description of linear model"""
     tex_summary = ''
     tex_full = ''
@@ -142,19 +144,43 @@ def lin_mod_tex_description(coef, data, id='lin'):
     # Sort predictors by size of coefficient
     coef_importance = [np.abs((np.min(data.X[:,dim]) - np.max(data.X[:,dim])) * coef[dim])
                               for dim in range(len(data.X_labels))]
-    coef_names_and_values = zip(data.X_labels, coef, coef_importance)
+    coef_names_and_values = zip(data.X_labels, coef, coef_importance, range(len(coef)))
     sorted_coef = sorted(coef_names_and_values, key=lambda a_pair: a_pair[2], reverse=True)
     n_predictors = 0
     for name_and_value in sorted_coef:
         name = name_and_value[0]
         value = name_and_value[1]
+        idx = name_and_value[3] # The original index of the variable
         if value > 0:
             n_predictors += 1
             tex_summary += '\n  \\item increases linearly with input %s' % name
+            tex_full += '\n\\paragraph{Increase with %s}\n' % name
         elif value < 0:
             n_predictors += 1
             tex_summary += '\n  \\item decreases linearly with input %s' % name
+            tex_full += '\n\\paragraph{Decrease with %s}\n' % name
         if value != 0:
+            correlation = stats.pearsonr(data.X[:,idx].ravel(), data.y)[0]
+            partial_residuals = value * data.X[:,idx].ravel() + data.y - y_hat
+            part_correlation = stats.pearsonr(data.X[:,idx].ravel(), partial_residuals)[0]
+            if abs(part_correlation - correlation) > 0.3:
+                qualifier = 'substantially'
+            elif abs(part_correlation - correlation) > 0.1:
+                qualifier = 'moderately'
+            elif abs(part_correlation - correlation) > 0.01:
+                qualifier = 'slightly'
+            else:
+                qualifier = None
+            if qualifier is not None:
+                tex_full += '''
+The correlation between the data and the input variable %(name)s is %(corr)0.2f (see figure \\ref{fig:train_%(input)s}a).
+Accounting for the rest of the model, this changes %(qual)s to a part correlation of %(part)0.2f (see figure \\ref{fig:train_%(input)s}b).
+''' % {'name':name, 'corr': correlation, 'part': part_correlation, 'input': name.replace(' ', ''), 'qual': qualifier}
+            else:
+                tex_full += '''
+The correlation between the data and the input variable %(name)s is %(corr)0.2f (see figure \\ref{fig:train_%(input)s}a).
+This correlation does not change when accounting for the rest of the model (see figure \\ref{fig:train_%(input)s}b).
+''' % {'name':name, 'corr': correlation, 'part': part_correlation, 'input': name.replace(' ', ''), 'qual': qualifier}
             tex_full += '''
 \\begin{figure}[H]
 \\newcommand{\wmgd}{0.3\columnwidth}
@@ -165,13 +191,17 @@ def lin_mod_tex_description(coef, data, id='lin'):
 %%\mbm
 \includegraphics[width=\wmgd]{\mdrd/%(id)s-train-%(input)s} &
 \includegraphics[width=\wmgd ]{\mdrd/%(id)s-partial-resid-%(input)s} &
-\includegraphics[width=\wmgd ]{\mdrd/%(id)s-resid-%(input)s}
+\includegraphics[width=\wmgd ]{\mdrd/%(id)s-resid-%(input)s} \\\\
+a) & b) & c)
 \end{tabular}
 \\end{center}
-\caption{Stuff}
+\caption{
+a) Training data plotted against %(var)s.
+b) Partial residuals (data minus the rest of the model) and fit of this component.
+c) Residuals (data minus the full model).}
 \label{fig:train_%(input)s}
 \end{figure}
-''' % {'id' : id, 'input' : name.replace(' ', '')}
+''' % {'id': id, 'input': name.replace(' ', ''), 'var': name}
     if n_predictors == 0:
         tex_summary += '\n \\item does not vary with the inputs'
     tex_summary += '\n\\end{itemize}'
@@ -334,6 +364,10 @@ class SKLinearModel(SKLearnModel):
                                         distribution=self.conditional_distributions[0], data=self.data))
         self.knowledge_base.append(dict(label='description', text=description,
                                         distribution=self.conditional_distributions[0], data=self.data))
+        self.knowledge_base.append(dict(label='method', text='Full linear model',
+                                        distribution=self.conditional_distributions[0], data=self.data))
+        self.knowledge_base.append(dict(label='active-inputs', value=self.data.X.shape[1],
+                                        distribution=self.conditional_distributions[0], data=self.data))
 
     def generate_figures(self):
         # Plot training data against fit
@@ -389,7 +423,8 @@ class SKLinearModel(SKLearnModel):
         self.generate_tex()
 
     def generate_tex(self):
-        tex_summary, tex_full = lin_mod_tex_description(coef=self.model.coef_, data=self.data)
+        tex_summary, tex_full = lin_mod_tex_description(coef=self.model.coef_, data=self.data,
+                                                y_hat=self.conditional_distributions[0].conditional_mean(self.data))
         self.knowledge_base.append(dict(label='tex-summary', text=tex_summary,
                                         distribution=self.conditional_distributions[0], data=self.data))
         self.knowledge_base.append(dict(label='tex-description', text=tex_full,
@@ -406,6 +441,10 @@ class SKLassoReg(SKLearnModel):
         self.knowledge_base.append(dict(label='summary', text=summary,
                                         distribution=self.conditional_distributions[0], data=self.data))
         self.knowledge_base.append(dict(label='description', text=description,
+                                        distribution=self.conditional_distributions[0], data=self.data))
+        self.knowledge_base.append(dict(label='method', text='LASSO',
+                                        distribution=self.conditional_distributions[0], data=self.data))
+        self.knowledge_base.append(dict(label='active-inputs', value=np.sum(self.model.coef_ != 0),
                                         distribution=self.conditional_distributions[0], data=self.data))
 
     def generate_figures(self):
@@ -462,7 +501,8 @@ class SKLassoReg(SKLearnModel):
         self.generate_tex()
 
     def generate_tex(self):
-        tex_summary, tex_full = lin_mod_tex_description(coef=self.model.coef_, data=self.data, id='lasso')
+        tex_summary, tex_full = lin_mod_tex_description(coef=self.model.coef_, data=self.data, id='lasso',
+                                                y_hat=self.conditional_distributions[0].conditional_mean(self.data))
         self.knowledge_base.append(dict(label='tex-summary', text=tex_summary,
                                         distribution=self.conditional_distributions[0], data=self.data))
         self.knowledge_base.append(dict(label='tex-description', text=tex_full,
@@ -564,6 +604,10 @@ class BICBackwardsStepwiseLin(object):
                                         distribution=self.conditional_distributions[0], data=self.data))
         self.knowledge_base.append(dict(label='description', text=description,
                                         distribution=self.conditional_distributions[0], data=self.data))
+        self.knowledge_base.append(dict(label='method', text='BIC stepwise',
+                                        distribution=self.conditional_distributions[0], data=self.data))
+        self.knowledge_base.append(dict(label='active-inputs', value=len(self.subset),
+                                        distribution=self.conditional_distributions[0], data=self.data))
 
     def generate_figures(self):
         # Plot training data against fit
@@ -625,7 +669,8 @@ class BICBackwardsStepwiseLin(object):
         coefs = [0] * len(self.data.X_labels)
         for (i, dim) in enumerate(self.subset):
             coefs[dim] = self.model.model.coef_[i] # FIXME model.model
-        tex_summary, tex_full = lin_mod_tex_description(coef=coefs, data=self.data, id='bic')
+        tex_summary, tex_full = lin_mod_tex_description(coef=coefs, data=self.data, id='bic',
+                                                    y_hat=self.conditional_distributions[0].conditional_mean(self.data))
         self.knowledge_base.append(dict(label='tex-summary', text=tex_summary,
                                         distribution=self.conditional_distributions[0], data=self.data))
         self.knowledge_base.append(dict(label='tex-description', text=tex_full,
@@ -726,14 +771,6 @@ class RegressionDiagnosticsExpert():
         for i in range(self.boot_iters):
             y_rep = self.conditional_distribution.conditional_sample(self.data)
             sample_RMSEs[i] = np.sqrt(MSE(y_rep, y_hat))
-        # Calculate p value
-        p_RMSE = np.sum(sample_RMSEs > RMSE) / self.boot_iters
-        # Generate a description of this fact
-        description = 'RMSE of %f which yields a p-value of %f' % (RMSE, p_RMSE)
-        # Save this to the knowledge base
-        self.knowledge_base.append(dict(label='RMSE', distribution=self.conditional_distribution,
-                                        value=RMSE, data=self.data, description=description, p_value=p_RMSE,
-                                        plot='test-fit'))
         # Plot some stuff
         fig = plt.figure(figsize=(5, 4))
         ax = fig.add_subplot(1,1,1) # one row, one column, first plot
@@ -746,6 +783,62 @@ class RegressionDiagnosticsExpert():
         ax.set_ylabel("Test data and sample")
         fig.savefig("../temp-report/figures/test-fit.pdf")
         plt.close()
+        # Plot histogram
+        fig = plt.figure(figsize=(5, 4))
+        ax = fig.add_subplot(1,1,1) # one row, one column, first plot
+        ax.hist(sample_RMSEs, bins=20, color='blue')
+        ax.axvline(RMSE, color='red', linestyle='dashed', linewidth=2)
+        ax.set_title("Histogram of RMSE")
+        ax.set_xlabel('RMSE')
+        ax.set_ylabel("Frequency")
+        fig.savefig("../temp-report/figures/test-fit-rmse-hist.pdf")
+        plt.close()
+        # Generate a description of this fact - larger correlation than expected
+        median_rmse = np.median(sample_RMSEs)
+        # Calculate p value
+        p_RMSE = np.sum(sample_RMSEs > RMSE) / self.boot_iters
+        code = 'fig:test-rmse-high'
+        if RMSE > median_rmse:
+            description = 'There is an unexpectedly high RMSE on the test data (see figure \\ref{%s}a).' % code
+            if RMSE > median_rmse + 0.2:
+                qualifier = 'substantially'
+            else:
+                qualifier = 'slightly'
+            description += '\nThe RMSE has a ' + \
+                           '%s larger value of %f' % (qualifier, RMSE) + \
+                           ' compared to its median value under the proposed model of %f' % median_rmse
+            description += ' (see figure \\ref{%s}b).' % code
+        else:
+            description = 'There is nothing remarkable to see here.'
+        caption = 'a) Test set and model samples. b) Histogram of RMSE evaluated on random samples from the model and value on test data (dashed line).'
+        # Save this to the knowledge base
+        self.knowledge_base.append(dict(label='RMSE', distribution=self.conditional_distribution,
+                                        value=RMSE, data=self.data, description=description, p_value=p_RMSE,
+                                        plots=['test-fit', 'test-fit-rmse-hist'],
+                                        code=code, caption=caption,
+                                        title='High test set error'))
+        # Calculate p value
+        p_RMSE = np.sum(sample_RMSEs < RMSE) / self.boot_iters
+        code = 'fig:test-rmse-low'
+        if RMSE < median_rmse:
+            description = 'There is an unexpectedly low RMSE on the test data (see figure \\ref{%s}a).' % code
+            if RMSE < median_rmse - 0.2:
+                qualifier = 'substantially'
+            else:
+                qualifier = 'slightly'
+            description += '\nThe RMSE has a ' + \
+                           '%s smaller value of %f' % (qualifier, RMSE) + \
+                           ' compared to its median value under the proposed model of %f' % median_rmse
+            description += ' (see figure \\ref{%s}b).' % code
+        else:
+            description = 'There is nothing remarkable to see here.'
+        caption = 'a) Test set and model samples. b) Histogram of RMSE evaluated on random samples from the model and value on test data (dashed line).'
+        # Save this to the knowledge base
+        self.knowledge_base.append(dict(label='RMSE', distribution=self.conditional_distribution,
+                                        value=RMSE, data=self.data, description=description, p_value=p_RMSE,
+                                        plots=['test-fit', 'test-fit-rmse-hist'],
+                                        code=code, caption=caption,
+                                        title='Low test set error'))
 
     def corr_test(self):
         """Test correlation of residuals with fit term"""
@@ -859,7 +952,7 @@ class RegressionDiagnosticsExpert():
         plt.close()
         # Generate a description of this fact
         median_corr = np.median(sample_corrs)
-        p_corr = np.sum(sample_corrs > corr) / self.boot_iters
+        p_corr = np.sum(sample_corrs > corr) / 100 # FIXME - Magic numbers
         code = 'fig:RDC-resid'
         if corr > median_corr:
             description = 'There is an unexpectedly high dependence between the residuals ' + \
@@ -981,7 +1074,7 @@ class RegressionDiagnosticsExpert():
                 y_rep = self.conditional_distribution.conditional_sample(self.data)
                 sample_corrs[i] = RDC(self.data.X[:,dim], y_rep - y_hat)
             # Calculate p value
-            p_corr = np.sum(sample_corrs > corr) / 100
+            p_corr = np.sum(sample_corrs > corr) / 100 # FIXME - Magic numbers
             # Plot histogram
             fig = plt.figure(figsize=(5, 4))
             ax = fig.add_subplot(1,1,1) # one row, one column, first plot
@@ -1114,7 +1207,7 @@ class RegressionDiagnosticsExpert():
                 y_rep = self.conditional_distribution.conditional_sample(self.data)
                 sample_corrs[i] = RDC(self.data.X[:,dim], y_rep)
             # Calculate p value
-            p_corr = np.sum(sample_corrs > corr) / 100
+            p_corr = np.sum(sample_corrs > corr) / 100 # FIXME - Magic numbers
             # Plot histogram
             fig = plt.figure(figsize=(5, 4))
             ax = fig.add_subplot(1,1,1) # one row, one column, first plot
@@ -1167,10 +1260,11 @@ class RegressionDiagnosticsExpert():
     def generate_tex(self):
         """Generates LaTeX to talk about the BH discoveries"""
         tex = '''
-In this section I have attempted to falsify the model I have presented above by comparing its distribution with data I held out from the model fitting stage.
+In this section I have attempted to falsify the model that I have presented above.
+This has been achieved by comparing the model with data I held out from the model fitting stage.
 In particular, I have searched for correlations and dependencies within the data that are unexpectedly large or too small.
-This does not include explicit tests of outliers or other distributional assumptions but will hopefully capture any particularly obvious failings of the model.
-Below are a list of the discrepancies I have found with the most surprising first.
+This currently does not include explicit tests of outliers or other distributional assumptions but will hopefully capture any particularly obvious failings of the model.
+Below are a list of the discrepancies that I have found with the most surprising first.
 '''
         for fact in self.knowledge_base:
             if fact['label'] == 'BH-discoveries':
@@ -1202,7 +1296,7 @@ a) & b)
 
     def run(self):
         self.conditional_distribution.clear_cache()
-        # self.RMSE_test()
+        self.RMSE_test()
         self.corr_test()
         self.RDC_test()
         self.corr_test_multi_dim()
@@ -1381,7 +1475,7 @@ class Manager():
 \def\ie{i.e.\ }
 \def\eg{e.g.\ }
 
-\\title{An automatic report for the dataset : XXX}
+\\title{An automatic report for the dataset : %(data)s}
 
 \\author{
 (A very basic version of) The Automatic Statistician
@@ -1409,19 +1503,80 @@ class Manager():
 \maketitle
 
 \\begin{abstract}
-This is a report analysing the dataset XXX.
+This is a report analysing the dataset %(data)s.
+Three simple strategies for building linear models have been compared using 5 fold cross validation on half of the data.
+The strategy with the lowest cross validated prediction error has then been trained on the same half of data.
+This model is then described, displaying the most influential components first.
+Model criticism techniques have then been applied to attempt to find discrepancies between the model and data.
 \end{abstract}
 
-\section{Model summary}
+\section{Summary of model construction}
+
+I have compared a number of different model construction techniques by computing cross validated prediction root mean squared errors (RMSE).
+I have selected the model with the lowest cross validated RMSE and then computed its RMSE on held out test data.
+These figures are summarised in table \\ref{table:cv-summary}.
+
+''' % {'data': self.data.name}
+
+        tex += '''
+\\begin{table}[H]
+\\begin{center}
+\\begin{tabular}{|l|rrr|}
+\\hline
+Method & Active inputs & Cross validated error & Test error \\\\
+\\hline
+'''
+
+        for (i, fact) in enumerate(self.cv_dists):
+            dist = fact[0]
+            cv_value = fact[1]
+            for other_fact in self.knowledge_base:
+                if (other_fact['label'] == 'method') and (other_fact['distribution'] == dist):
+                    method = other_fact['text']
+            for other_fact in self.knowledge_base:
+                if (other_fact['label'] == 'active-inputs') and (other_fact['distribution'] == dist):
+                    active_inputs = other_fact['value']
+            for other_fact in self.knowledge_base:
+                # Look for test set RMSE
+                if (other_fact['label'] == 'RMSE') and (other_fact['data'] == test_data) and \
+                   (other_fact['distribution'] == dist):
+                    test_error = other_fact['value']
+            if i == 0:
+                tex += '\n%s & %d & %f & %f \\\\' % (method, active_inputs, cv_value, test_error)
+            else:
+                # FIXME - Only computing test set errors on selected model
+                tex += '\n%s & %d & %f & %s \\\\' % (method, active_inputs, cv_value, '-')
+
+        tex += '''
+\\hline
+\end{tabular}
+\\end{center}
+\caption{Summary of model construction methods, cross validated errors and test set error of selected method}
+\label{table:cv-summary}
+\\end{table}
+
+In the rest of this report I have described the model with the lowest cross validated RMSE and have attempted to falsify it using held out test data.
+'''
+
+        tex += '''
+\\section{Model description}
+
+In this section I have described the model I have selected to explain the data.
+A quick summary is below, followed by quantification of the model with accompanying plots of model fit and residuals.
+
+\\subsection{Summary}
 
 '''
+
         dist = self.cv_dists[0][0]
         for other_fact in self.knowledge_base:
             if (other_fact['label'] == 'tex-summary') and (other_fact['distribution'] == dist):
                 tex += other_fact['text']
 
         tex += '''
-\\section{Detailed model description}
+
+\\subsection{Detailed plots}
+
 '''
 
         dist = self.cv_dists[0][0]
@@ -1484,8 +1639,8 @@ def main():
     data = XYDataSet()
     # data.load_from_file('../data/test-lin/simple-04.csv')
     # data.load_from_file('../data/test-lin/uci-slump-test.csv')
-    # data.load_from_file('../data/test-lin/uci-housing.csv')
-    data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
+    data.load_from_file('../data/test-lin/uci-housing.csv')
+    # data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
     manager = Manager()
     manager.load_data(data)
     manager.run()
