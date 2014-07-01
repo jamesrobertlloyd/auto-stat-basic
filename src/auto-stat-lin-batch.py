@@ -33,8 +33,8 @@ import os
 
 #### TODO
 #### - Make manager prefer simplicity
-#### - Good text descriptions of linear models and checking
 #### - Calibrated outlier detection - or kolmogorov smirnov test?
+#### - Multiple parameters of RDC?
 #### - Identify bottlenecks
 #### - Re-implement a nice version of all this
 
@@ -222,7 +222,7 @@ def rank(x):
     return x.argsort().argsort()
 
 
-def RDC(x, y, k=10, s=0.2, max_data=350):
+def RDC(x, y, k=20, s=0.15, max_data=100):
     """Randomised dependency criterion"""
     # FIXME - this should be tied rank
     x = x.flatten()
@@ -1526,6 +1526,7 @@ These figures are summarised in table \\ref{table:cv-summary}.
 Method & Active inputs & Cross validated error & Test error \\\\
 \\hline
 '''
+        test_error = -1
 
         for (i, fact) in enumerate(self.cv_dists):
             dist = fact[0]
@@ -1639,8 +1640,8 @@ def main():
     data = XYDataSet()
     # data.load_from_file('../data/test-lin/simple-04.csv')
     # data.load_from_file('../data/test-lin/uci-slump-test.csv')
-    data.load_from_file('../data/test-lin/uci-housing.csv')
-    # data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
+    # data.load_from_file('../data/test-lin/uci-housing.csv')
+    data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
     manager = Manager()
     manager.load_data(data)
     manager.run()
