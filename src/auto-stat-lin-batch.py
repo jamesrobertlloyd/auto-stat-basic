@@ -845,12 +845,12 @@ class RegressionDiagnosticsExpert():
         """Test correlation of residuals with fit term"""
         # Compute statistics on data
         y_hat = self.conditional_distribution.conditional_mean(self.data)
-        corr = abs(stats.pearsonr(y_hat, self.data.y - y_hat)[0])
+        corr = stats.pearsonr(y_hat, self.data.y - y_hat)[0]
         # Calculate sampling distribution
         sample_corrs = np.zeros(self.boot_iters)
         for i in range(self.boot_iters):
             y_rep = self.conditional_distribution.conditional_sample(self.data)
-            sample_corrs[i] = abs(stats.pearsonr(y_hat, y_rep - y_hat)[0])
+            sample_corrs[i] = stats.pearsonr(y_hat, y_rep - y_hat)[0]
         # Calculate p value
         p_corr = np.sum(sample_corrs > corr) / self.boot_iters
         # Generate a description of this fact
