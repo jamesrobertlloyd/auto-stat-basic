@@ -22,8 +22,10 @@ from sklearn.cross_validation import KFold
 from sklearn.metrics import mean_squared_error as MSE
 from sklearn.cross_decomposition import CCA
 
-from multiprocessing import Process, Pipe
+from multiprocessing import Process
+from threading import Thread
 from multiprocessing import Queue as multi_q
+from Queue import Queue as thread_q
 from Queue import Empty as q_Empty
 
 from scipy import stats
@@ -41,200 +43,118 @@ import sys
 
 ##############################################
 #                                            #
+#                  Agent                     #
+#                                            #
+##############################################
+
+
+class Agent(object):
+    def __init__(self, inbox_q=None, outbox_q=None, communication_sleep=1, child_timeout=60):
+        """
+        Implements a basic communication and action loop
+         - Get incoming messages
+         - Perform next action
+         - Send outgoing messages
+         - Check to see if terminated
+        :type inbox_q: thread_q
+        :type outbox_q: thread_q
+        """
+        self.inbox = []
+        self.outbox = []
+        self.inbox_q = inbox_q
+        self.outbox_q = outbox_q
+
+        self.child_processes = []
+        self.queues_to_children = []
+
+        self.communication_sleep = communication_sleep
+        self.child_timeout = child_timeout
+
+        self.terminated = False
+
+    def get_inbox_q(self):
+        """Transfer items from inbox queue into local inbox"""
+        while True:
+            try:
+                self.inbox.append(self.inbox_q.get_nowait())
+            except q_Empty:
+                break
+        # TODO : This might be a good place for generic message processing e.g. pause, terminate, clear messages
+
+    def next_action(self):
+        """Inspect messages and state and perform next action checking if process stopped or paused"""
+        pass
+
+    def flush_outbox(self):
+        """Send all pending messages to parent if communication queue exists"""
+        if not self.outbox_q is None:
+            while len(self.outbox) > 0:
+                self.outbox_q.put(self.outbox.pop(0))
+
+    def terminate_children(self):
+        # Send message to all children to terminate
+        for q in self.queues_to_children:
+            q.put(dict(label='terminate'))
+        # Attempt to join all child processes but always terminate them - terminate fast if possible
+        timeout = min(1, self.child_timeout)
+        while timeout <= self.child_timeout:
+            for p in self.child_processes:
+                p.join(timeout=timeout)
+                p.terminate()
+            timeout *= 2
+
+    def tidy_up(self):
+        """Run anything pertinent before termination"""
+        self.terminate_children()
+
+    def clear_inbox(self):
+        self.inbox = []
+
+    @property
+    def termination_pending(self):
+        """Checks all messages for termination instruction"""
+        result = False
+        for message in self.inbox:
+            try:
+                if message['label'].lower() == 'terminate':
+                    result = True
+                    break
+            except:
+                pass
+        return result
+
+    def communicate(self):
+        """Receive incoming messages, perform actions as appropriate and send outgoing messages"""
+        while True:
+            self.get_inbox_q()
+            self.next_action()
+            self.flush_outbox()
+            if self.terminated or self.termination_pending:
+                self.tidy_up()
+                break
+            time.sleep(self.communication_sleep)
+
+##############################################
+#                                            #
 #                  Models                    #
 #                                            #
 ##############################################
 
 
-class DistributionModel(object):
-    """Wrapper for a distribution"""
-    def __init__(self, dist):
-        self.conditional_distributions = [dist]
+class DummyModel(Agent):
+    def __init__(self, number=5, max_actions=10, *args, **kwargs):
+        super(DummyModel, self).__init__(*args, **kwargs)
 
+        self.number = number
+        self.action_count = 0
+        self.max_actions = max_actions
 
-class SKLearnModel(object):
-    """Wrapper for sklearn models"""
-
-    def __init__(self, base_class):
-        self.sklearn_class = base_class
-        self.model = self.sklearn_class()
-        self.data = None
-        self.conditional_distributions = []
-        self.knowledge_base = []
-
-    def load_data(self, data):
-        assert isinstance(data, XYDataSet)
-        self.data = data
-
-    def run(self):
-        self.model.fit(self.data.X, self.data.y)
-        y_hat = self.model.predict(self.data.X)
-        sd = np.sqrt((sklearn.metrics.mean_squared_error(self.data.y, y_hat)))
-        self.conditional_distributions = [SKLearnModelPlusGaussian(self.model, sd)]
-        self.generate_descriptions()
-
-    def generate_descriptions(self):
-        # I can be replaced with a generic description routine - e.g. average predictive comparisons
-        raise RuntimeError('Description not implemented')
-
-
-class SKLinearModel(SKLearnModel):
-    """Simple linear regression model based on sklearn implementation"""
-
-    def __init__(self):
-        super(SKLinearModel, self).__init__(lambda: sklearn.linear_model.LinearRegression(fit_intercept=True,
-                                                                                          normalize=False,
-                                                                                          copy_X=True))
-
-    def generate_descriptions(self):
-        summary, description = lin_mod_txt_description(coef=self.model.coef_, data=self.data)
-        self.knowledge_base.append(dict(label='summary', text=summary,
-                                        distribution=self.conditional_distributions[0], data=self.data))
-        self.knowledge_base.append(dict(label='description', text=description,
-                                        distribution=self.conditional_distributions[0], data=self.data))
-        self.knowledge_base.append(dict(label='method', text='Full linear model',
-                                        distribution=self.conditional_distributions[0], data=self.data))
-        self.knowledge_base.append(dict(label='active-inputs', value=self.data.X.shape[1],
-                                        distribution=self.conditional_distributions[0], data=self.data))
-
-    def generate_figures(self):
-        # Plot training data against fit
-        fig = plt.figure(figsize=(5, 4))
-        ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-        y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-        sorted_y_hat = np.sort(y_hat)
-        ax.plot(sorted_y_hat, sorted_y_hat, color="blue")
-        ax.scatter(y_hat, self.data.y, color="red", marker="o")
-        ax.set_title("Training data against fit")
-        ax.set_xlabel("Model fit")
-        ax.set_ylabel("Training data")
-        fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lin-train-fit.pdf"))
-        plt.close()
-        # Plot data against all dimensions
-        for dim in range(self.data.X.shape[1]):
-            fig = plt.figure(figsize=(5, 4))
-            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-            ax.scatter(self.data.X[:, dim], self.data.y, color="red", marker="o")
-            ax.set_title("Training data against %s" % self.data.X_labels[dim])
-            ax.set_xlabel(self.data.X_labels[dim])
-            ax.set_ylabel("Training data")
-            fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lin-train-%s.pdf" % self.data.X_labels[dim].replace(' ', '')))
-            plt.close()
-        # Plot rest of model against fit
-        for dim in range(self.data.X.shape[1]):
-            fig = plt.figure(figsize=(5, 4))
-            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-            y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-            component_fit = self.model.coef_[dim] * self.data.X[:, dim].ravel()
-            partial_resid = self.data.y - (y_hat - component_fit)
-            plot_idx = np.argsort(self.data.X[:, dim].ravel())
-            ax.plot(self.data.X[plot_idx, dim], component_fit[plot_idx], color="blue")
-            ax.scatter(self.data.X[:, dim], partial_resid, color="red", marker="o")
-            ax.set_title("Partial residual against %s" % self.data.X_labels[dim])
-            ax.set_xlabel(self.data.X_labels[dim])
-            ax.set_ylabel("Partial residual")
-            fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lin-partial-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', '')))
-            plt.close()
-        # Plot residuals against each dimension
-        for dim in range(self.data.X.shape[1]):
-            fig = plt.figure(figsize=(5, 4))
-            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-            y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-            resid = self.data.y - y_hat
-            ax.scatter(self.data.X[:, dim], resid, color="red", marker="o")
-            ax.set_title("Residuals against %s" % self.data.X_labels[dim])
-            ax.set_xlabel(self.data.X_labels[dim])
-            ax.set_ylabel("Residuals")
-            fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lin-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', '')))
-            plt.close()
-        # FIXME - this is in the wrong place
-        self.generate_tex()
-
-    def generate_tex(self):
-        tex_summary, tex_full = lin_mod_tex_description(coef=self.model.coef_, data=self.data,
-                                                y_hat=self.conditional_distributions[0].conditional_mean(self.data))
-        self.knowledge_base.append(dict(label='tex-summary', text=tex_summary,
-                                        distribution=self.conditional_distributions[0], data=self.data))
-        self.knowledge_base.append(dict(label='tex-description', text=tex_full,
-                                        distribution=self.conditional_distributions[0], data=self.data))
-
-class SKLassoReg(SKLearnModel):
-    """Lasso trained linear regression model"""
-
-    def __init__(self):
-        super(SKLassoReg, self).__init__(sklearn.linear_model.LassoLarsCV)
-
-    def generate_descriptions(self):
-        summary, description = lin_mod_txt_description(coef=self.model.coef_, data=self.data)
-        self.knowledge_base.append(dict(label='summary', text=summary,
-                                        distribution=self.conditional_distributions[0], data=self.data))
-        self.knowledge_base.append(dict(label='description', text=description,
-                                        distribution=self.conditional_distributions[0], data=self.data))
-        self.knowledge_base.append(dict(label='method', text='LASSO',
-                                        distribution=self.conditional_distributions[0], data=self.data))
-        self.knowledge_base.append(dict(label='active-inputs', value=np.sum(self.model.coef_ != 0),
-                                        distribution=self.conditional_distributions[0], data=self.data))
-
-    def generate_figures(self):
-        # Plot training data against fit
-        fig = plt.figure(figsize=(5, 4))
-        ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-        y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-        sorted_y_hat = np.sort(y_hat)
-        ax.plot(sorted_y_hat, sorted_y_hat, color="blue")
-        ax.scatter(y_hat, self.data.y, color="red", marker="o")
-        ax.set_title("Training data against fit")
-        ax.set_xlabel("Model fit")
-        ax.set_ylabel("Training data")
-        fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lasso-train-fit.pdf"))
-        plt.close()
-        # Plot data against all dimensions
-        for dim in range(self.data.X.shape[1]):
-            fig = plt.figure(figsize=(5, 4))
-            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-            ax.scatter(self.data.X[:, dim], self.data.y, color="red", marker="o")
-            ax.set_title("Training data against %s" % self.data.X_labels[dim])
-            ax.set_xlabel(self.data.X_labels[dim])
-            ax.set_ylabel("Training data")
-            fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lasso-train-%s.pdf" % self.data.X_labels[dim].replace(' ', '')))
-            plt.close()
-        # Plot rest of model against fit
-        for dim in range(self.data.X.shape[1]):
-            fig = plt.figure(figsize=(5, 4))
-            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-            y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-            component_fit = self.model.coef_[dim] * self.data.X[:, dim].ravel()
-            partial_resid = self.data.y - (y_hat - component_fit)
-            plot_idx = np.argsort(self.data.X[:, dim].ravel())
-            ax.plot(self.data.X[plot_idx, dim], component_fit[plot_idx], color="blue")
-            ax.scatter(self.data.X[:, dim], partial_resid, color="red", marker="o")
-            ax.set_title("Partial residual against %s" % self.data.X_labels[dim])
-            ax.set_xlabel(self.data.X_labels[dim])
-            ax.set_ylabel("Partial residual")
-            fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lasso-partial-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', '')))
-            plt.close()
-        # Plot residuals against each dimension
-        for dim in range(self.data.X.shape[1]):
-            fig = plt.figure(figsize=(5, 4))
-            ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-            y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-            resid = self.data.y - y_hat
-            ax.scatter(self.data.X[:, dim], resid, color="red", marker="o")
-            ax.set_title("Residuals against %s" % self.data.X_labels[dim])
-            ax.set_xlabel(self.data.X_labels[dim])
-            ax.set_ylabel("Residuals")
-            fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lasso-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', '')))
-            plt.close()
-        # FIXME - this is in the wrong place
-        self.generate_tex()
-
-    def generate_tex(self):
-        tex_summary, tex_full = lin_mod_tex_description(coef=self.model.coef_, data=self.data, id='lasso',
-                                                y_hat=self.conditional_distributions[0].conditional_mean(self.data))
-        self.knowledge_base.append(dict(label='tex-summary', text=tex_summary,
-                                        distribution=self.conditional_distributions[0], data=self.data))
-        self.knowledge_base.append(dict(label='tex-description', text=tex_full,
-                                        distribution=self.conditional_distributions[0], data=self.data))
+    def next_action(self):
+        time.sleep(self.number)
+        self.action_count += 1
+        self.outbox.append(str(self.number * self.action_count))
+        if self.action_count >= self.max_actions:
+            self.terminated = True
 
 ##############################################
 #                                            #
@@ -243,77 +163,86 @@ class SKLassoReg(SKLearnModel):
 ##############################################
 
 
-class Manager():
-    def __init__(self, pipe):
-        self.pipe_to_parent = pipe  # Communication to application
+class Manager(Agent):
+    def __init__(self, *args, **kwargs):
+        super(Manager, self).__init__(*args, **kwargs)
+
         self.data = None
-        self.expert_processes = []
-        self.expert_pipes = []
+        self.model_queue = multi_q()
+        self.criticism_queue = multi_q()
+
+        self.experts = []
+        self.expert_reports = []
+        self.updated = False
+
+        self.state = 'init'
 
     def load_data(self, data):
         # assert isinstance(data, XSeqDataSet)
         self.data = data
 
-    def stop_children(self):
-        # Send message to all children
-        for pipe in self.expert_pipes:
-            pipe.send('stop')
-        # Attempt to join all child processes, else terminate them
-
-    def init_data(self):
-        
-
-    def run(self):
-        # TODO - this should be a minimal interface that just turns messages from the parent into actions...
-        # TODO - ...this will allow us to test the module in parallel / single threaded environments
+    def init_data_and_experts(self):
         # Write placeholder report
-        self.pipe_to_parent.send('Your report is being prepared')
+        self.outbox.append(dict(label='report', text='Your report is being prepared'))
         # Partition data in train / test
-        random_perm = range(len(self.data.y))
-        random.shuffle(random_perm)
-        proportion_train = 0.5
-        train_indices = random_perm[:int(np.floor(len(self.data.y) * proportion_train))]
-        test_indices  = random_perm[int(np.floor(len(self.data.y) * proportion_train)):]
-        data_sets = self.data.subsets([train_indices, test_indices])
-        train_data = data_sets[0]
-        test_data = data_sets[1]
-        # Create folds of training data
-        train_folds = KFold(len(train_data.y), n_folds=5, indices=False)
-        train_data.set_cv_indices(train_folds)
+        # random_perm = range(len(self.data.y))
+        # random.shuffle(random_perm)
+        # proportion_train = 0.5
+        # train_indices = random_perm[:int(np.floor(len(self.data.y) * proportion_train))]
+        # test_indices  = random_perm[int(np.floor(len(self.data.y) * proportion_train)):]
+        # data_sets = self.data.subsets([train_indices, test_indices])
+        # train_data = data_sets[0]
+        # test_data = data_sets[1]
+        # # Create folds of training data
+        # train_folds = KFold(len(train_data.y), n_folds=5, indices=False)
+        # train_data.set_cv_indices(train_folds)
         # Initialise list of experts
-        # experts = [CrossValidationExpert(SKLinearModel),
-        #            CrossValidationExpert(SKLassoReg),
-        #            CrossValidationExpert(BICBackwardsStepwiseLin)]#,
-        #            # CrossValidationExpert(SKLearnRandomForestReg)]
-        experts = [SKLinearModel(),
-                   SKLassoReg()]
+        self.experts = [DummyModel(number=5, max_actions=10),
+                        DummyModel(number=7, max_actions=5)]
         # Load data into experts
-        for expert in experts:
-            expert.load_data(train_data)
+        # for expert in experts:
+        #     expert.load_data(train_data)
         # Start experts running in separate processes and set up communication
-        self.expert_processes = []
-        self.expert_pipes = []
-        for expert in experts:
-            pipe_to_expert, pipe_to_manager = Pipe()
-            self.expert_pipes.append(pipe_to_expert)
-            expert.pipe_to_parent = pipe_to_manager
-            p = Process(target=run_agent, args=(expert,))
+        for expert in self.experts:
+            q_to_child = multi_q()
+            self.queues_to_children.append(q_to_child)
+            expert.inbox_q = q_to_child
+            expert.outbox_q = self.model_queue
+            p = Process(target=start_communication, args=(expert,))
             p.start()
-            self.expert_processes.append(p)
+            self.child_processes.append(p)
         # Remove local reference to experts
-        del experts
-        # Start communication loop
+        del self.experts
+        self.state = 'wait for experts'
+
+    def wait_for_experts(self):
+        time.sleep(0.1)
+        self.updated = False
         while True:
-            # Any messages from parent?
-            if self.pipe_to_parent.poll():
-                message = self.pipe_to_parent.recv()
-                if message == 'stop':
+            try:
+                self.expert_reports.append(self.model_queue.get_nowait())
+                self.updated = True
+            except q_Empty:
+                break
+        self.state = 'produce report'
 
-                    break
+    def produce_report(self):
+        if self.updated:
+            report = '\n'
+            for expert_report in self.expert_reports:
+                report += expert_report + '\n'
+            self.outbox.append(report)
+        self.state = 'wait for experts'
 
-
-        self.pipe_to_parent.send('A message')
-        self.pipe_to_parent.send('finished')
+    def next_action(self):
+        if not self.termination_pending:
+            if self.state == 'init':
+                if not self.data is None:
+                    self.init_data_and_experts()
+            elif self.state == 'wait for experts':
+                self.wait_for_experts()
+            elif self.state == 'produce report':
+                self.produce_report()
 
 ##############################################
 #                                            #
@@ -322,9 +251,9 @@ class Manager():
 ##############################################
 
 
-def run_agent(agent):
+def start_communication(agent):
     try:
-        agent.run()
+        agent.communicate()
     except:
         print "Thread for %s exited with '%s'" % (agent, sys.exc_info())
 
@@ -341,29 +270,34 @@ def main():
     np.random.seed(seed)
     random.seed(seed)
     # Load data
-    data = None
+    data = 0
     # data = XSeqDataSet()
     # data.load_from_file('../data/test-lin/simple-01.csv')
     # Setup up manager and communication
-    pipe_to_manager, pipe_to_main = Pipe()
-    manager = Manager(pipe=pipe_to_main)
+    queue_to_manager = multi_q()
+    queue_to_main = multi_q()
+    manager = Manager(inbox_q=queue_to_manager, outbox_q=queue_to_main)
     manager.load_data(data)
     # Start manager in new process
-    p = Process(target=run_agent, args=(manager,))
+    p = Process(target=start_communication, args=(manager,))
     p.start()
     # Delete the local version of the manager to avoid confusion
     del manager
     # Listen to the manager until it finishes or crashes
+    count = 0
     while True:
-        if pipe_to_manager.poll():
-            message = pipe_to_manager.recv()
-            print(message)
-            if message == 'finished':
-                break
-        elif not p.is_alive():
-            print('Manager has crashed')
+        if not p.is_alive():
             break
-        time.sleep(1)
+        while True:
+            try:
+                print(queue_to_main.get_nowait())
+            except q_Empty:
+                break
+        count += 1
+        if count > 400:
+            queue_to_manager.put(dict(label='terminate'))
+        time.sleep(0.1)
+    p.join()
 
 
 if __name__ == "__main__":
