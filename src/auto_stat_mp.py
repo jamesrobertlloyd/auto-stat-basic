@@ -100,7 +100,8 @@ class Agent(object):
         while timeout <= self.child_timeout:
             for p in self.child_processes:
                 p.join(timeout=timeout)
-                p.terminate()
+                if hasattr(p, 'terminate'):
+                    p.terminate()
             timeout *= 2
 
     def tidy_up(self):
