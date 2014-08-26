@@ -153,9 +153,8 @@ def start_communication(agent):
     try:
         agent.communicate()
     except:
-        traceback_object = sys.exc_info()[2]
-        print("Thread for %s exited with '%s'" % (agent, sys.exc_info()))
-        traceback.print_tb(traceback_object)
+        print("Thread for %s has died" % agent)
+        traceback.print_exc()
 
 ##############################################
 #                                            #
