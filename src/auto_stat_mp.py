@@ -34,7 +34,7 @@ import time
 # import shutil
 # import re
 import sys
-import traceback
+import select
 
 from signal import signal, SIGPIPE, SIG_DFL
 
@@ -52,12 +52,6 @@ import latex_util
 #### FIXME
 #### - XSeqDataSet will not uniqify labels when columns > 100
 
-##############################################
-#                                            #
-#                  Manager                   #
-#                                            #
-##############################################
-
 
 class Manager(Agent):
     def __init__(self, *args, **kwargs):
@@ -68,7 +62,8 @@ class Manager(Agent):
         self.criticism_queue = multi_q()
 
         self.experts = []
-        self.expert_reports = []
+        self.all_dist_msgs = []
+        self.up_to_date_dist_msgs = []
         self.updated = False
 
         self.state = 'init'
@@ -86,15 +81,17 @@ class Manager(Agent):
         random.shuffle(random_perm)
         proportion_train = 0.5
         train_indices = random_perm[:int(floor(n_data * proportion_train))]
-        test_indices  = random_perm[int(floor(n_data * proportion_train)):]
+        test_indices = random_perm[int(floor(n_data * proportion_train)):]
         data_sets = self.data.subsets([train_indices, test_indices])
         train_data = data_sets[0]
-        test_data = data_sets[1]
+        # test_data = data_sets[1]
         # Initialise list of experts
         # self.experts = [DummyModel(number=5, max_actions=10),
         #                 DummyModel(number=7, max_actions=5)]
         self.experts = [experts.DataDoublingExpert(lambda: experts.CrossValidationExpert(experts.SKLinearModel)),
-                        experts.DataDoublingExpert(lambda: experts.CrossValidationExpert(experts.SKLassoReg))]
+                        experts.DataDoublingExpert(lambda: experts.CrossValidationExpert(experts.SKLassoReg)),
+                        experts.DataDoublingExpert(lambda:
+                                                   experts.CrossValidationExpert(experts.SKLearnRandomForestReg))]
         # Load data into experts and set name
         for (i, expert) in enumerate(self.experts):
             expert.name = '%dof%d' % (i + 1, len(self.experts))
@@ -117,17 +114,43 @@ class Manager(Agent):
         self.updated = False
         while not self.termination_pending:
             try:
-                self.expert_reports.append(self.expert_queue.get_nowait())
+                self.all_dist_msgs.append(self.expert_queue.get_nowait())
                 self.updated = True
             except q_Empty:
                 break
         self.state = 'produce report'
 
+    def strip_old_epoch_distributions(self):
+        '''Produce a list of candidate models from their latest epochs'''
+        # Produce a list of all sender names
+        senders = []
+        for message in self.all_dist_msgs:
+            if not message['sender'] in senders:
+                senders.append(message['sender'])
+        # Now find the max epochs for each sender
+        max_epochs = [0] * len(senders)
+        for (i, sender) in enumerate(senders):
+            for message in self.all_dist_msgs:
+                if message['sender'] == sender:
+                    if message['epoch'] > max_epochs[i]:
+                        max_epochs[i] = message['epoch']
+        # Now filter the distribution messages
+        self.up_to_date_dist_msgs = []
+        for message in self.all_dist_msgs:
+            keep_message = False
+            for (sender, max_epoch) in zip(senders, max_epochs):
+                if (message['sender'] == sender) and \
+                   (message['epoch'] == max_epoch):
+                    keep_message = True
+            if keep_message:
+                self.up_to_date_dist_msgs.append(message)
+
     def produce_report(self):
         if self.updated:
             report = '\n'
-            for expert_report in self.expert_reports:
-                report += str(expert_report) + '\n'
+            self.strip_old_epoch_distributions()
+            for message in self.up_to_date_dist_msgs:
+                report += str(message) + '\n'
             self.outbox.append(report)
         self.state = 'wait for experts'
 
@@ -141,23 +164,19 @@ class Manager(Agent):
             elif self.state == 'produce report':
                 self.produce_report()
 
-##############################################
-#                                            #
-#                   Main                     #
-#                                            #
-##############################################
-
 
 def main():
     # Something to do with pipes that I don't understand
-    signal(SIGPIPE,SIG_DFL)  # http://newbebweb.blogspot.co.uk/2012/02/python-head-ioerror-errno-32-broken.html
+    signal(SIGPIPE, SIG_DFL)  # http://newbebweb.blogspot.co.uk/2012/02/python-head-ioerror-errno-32-broken.html
     # Setup
+    print('\nPress enter to terminate at any time.\n')
     seed = 1
     np_rand_seed(seed)
     random.seed(seed)
     # Load data
     data = XSeqDataSet()
-    data.load_from_file('../data/test-lin/simple-01.csv')
+    # data.load_from_file('../data/test-lin/simple-01.csv')
+    data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
     # Setup up manager and communication
     queue_to_manager = thread_q()
     queue_to_main = thread_q()
@@ -168,8 +187,7 @@ def main():
     p.start()
     # Delete the local version of the manager to avoid confusion
     del manager
-    # Listen to the manager until it finishes or crashes
-    count = 0
+    # Listen to the manager until it finishes or crashes or user types input
     while True:
         if not p.is_alive():
             break
@@ -178,10 +196,14 @@ def main():
                 print(queue_to_main.get_nowait())
             except q_Empty:
                 break
-        count += 1
-        if count > 100:
+        # Wait for one second to see if any keyboard input
+        i, o, e = select.select([sys.stdin], [], [], 1)
+        if i:
+            print('\n\nTerminating')
+            sys.stdin.readline() # Read whatever was typed to stdin
             queue_to_manager.put(dict(label='terminate'))
-        time.sleep(0.1)
+        else:
+            time.sleep(0.1)
     p.join()
 
 

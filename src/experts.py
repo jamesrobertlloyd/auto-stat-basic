@@ -111,10 +111,12 @@ class DistributionModel(object):
         self.conditional_distributions = [dist]
 
 
-class SKLearnModel(object):
+class SKLearnModel(Agent):
     """Wrapper for sklearn models"""
 
-    def __init__(self, base_class):
+    def __init__(self, base_class, *args, **kwargs):
+        super(SKLearnModel, self).__init__(*args, **kwargs)
+
         self.sklearn_class = base_class
         self.model = self.sklearn_class()
         self.data = None
@@ -125,7 +127,7 @@ class SKLearnModel(object):
         assert isinstance(data, XYDataSet)
         self.data = data
 
-    def run(self):
+    def fit(self):
         self.model.fit(self.data.X, self.data.y)
         y_hat = self.model.predict(self.data.X)
         sd = np.sqrt((sklearn.metrics.mean_squared_error(self.data.y, y_hat)))
@@ -141,331 +143,26 @@ class SKLearnModel(object):
 class SKLinearModel(SKLearnModel):
     """Simple linear regression model based on sklearn implementation"""
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         super(SKLinearModel, self).__init__(lambda: sklearn.linear_model.LinearRegression(fit_intercept=True,
                                                                                           normalize=False,
-                                                                                          copy_X=True))
-
-    # def generate_descriptions(self):
-    #     summary, description = lin_mod_txt_description(coef=self.model.coef_, data=self.data)
-    #     self.knowledge_base.append(dict(label='summary', text=summary,
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #     self.knowledge_base.append(dict(label='description', text=description,
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #     self.knowledge_base.append(dict(label='method', text='Full linear model',
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #     self.knowledge_base.append(dict(label='active-inputs', value=self.data.X.shape[1],
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #
-    # def generate_figures(self):
-    #     # Plot training data against fit
-    #     fig = plt.figure(figsize=(5, 4))
-    #     ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-    #     y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-    #     sorted_y_hat = np.sort(y_hat)
-    #     ax.plot(sorted_y_hat, sorted_y_hat, color="blue")
-    #     ax.scatter(y_hat, self.data.y, color="red", marker="o")
-    #     ax.set_title("Training data against fit")
-    #     ax.set_xlabel("Model fit")
-    #     ax.set_ylabel("Training data")
-    #     fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lin-train-fit.pdf"))
-    #     plt.close()
-    #     # Plot data against all dimensions
-    #     for dim in range(self.data.X.shape[1]):
-    #         fig = plt.figure(figsize=(5, 4))
-    #         ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-    #         ax.scatter(self.data.X[:, dim], self.data.y, color="red", marker="o")
-    #         ax.set_title("Training data against %s" % self.data.X_labels[dim])
-    #         ax.set_xlabel(self.data.X_labels[dim])
-    #         ax.set_ylabel("Training data")
-    #         fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lin-train-%s.pdf" % self.data.X_labels[dim].replace(' ', '')))
-    #         plt.close()
-    #     # Plot rest of model against fit
-    #     for dim in range(self.data.X.shape[1]):
-    #         fig = plt.figure(figsize=(5, 4))
-    #         ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-    #         y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-    #         component_fit = self.model.coef_[dim] * self.data.X[:, dim].ravel()
-    #         partial_resid = self.data.y - (y_hat - component_fit)
-    #         plot_idx = np.argsort(self.data.X[:, dim].ravel())
-    #         ax.plot(self.data.X[plot_idx, dim], component_fit[plot_idx], color="blue")
-    #         ax.scatter(self.data.X[:, dim], partial_resid, color="red", marker="o")
-    #         ax.set_title("Partial residual against %s" % self.data.X_labels[dim])
-    #         ax.set_xlabel(self.data.X_labels[dim])
-    #         ax.set_ylabel("Partial residual")
-    #         fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lin-partial-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', '')))
-    #         plt.close()
-    #     # Plot residuals against each dimension
-    #     for dim in range(self.data.X.shape[1]):
-    #         fig = plt.figure(figsize=(5, 4))
-    #         ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-    #         y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-    #         resid = self.data.y - y_hat
-    #         ax.scatter(self.data.X[:, dim], resid, color="red", marker="o")
-    #         ax.set_title("Residuals against %s" % self.data.X_labels[dim])
-    #         ax.set_xlabel(self.data.X_labels[dim])
-    #         ax.set_ylabel("Residuals")
-    #         fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lin-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', '')))
-    #         plt.close()
-    #     # FIXME - this is in the wrong place
-    #     self.generate_tex()
-    #
-    # def generate_tex(self):
-    #     tex_summary, tex_full = lin_mod_tex_description(coef=self.model.coef_, data=self.data,
-    #                                             y_hat=self.conditional_distributions[0].conditional_mean(self.data))
-    #     self.knowledge_base.append(dict(label='tex-summary', text=tex_summary,
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #     self.knowledge_base.append(dict(label='tex-description', text=tex_full,
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
+                                                                                          copy_X=True),
+                                            *args, **kwargs)
 
 
 class SKLassoReg(SKLearnModel):
     """Lasso trained linear regression model"""
 
-    def __init__(self):
-        super(SKLassoReg, self).__init__(sklearn.linear_model.LassoLarsCV)
-
-    # def generate_descriptions(self):
-    #     summary, description = lin_mod_txt_description(coef=self.model.coef_, data=self.data)
-    #     self.knowledge_base.append(dict(label='summary', text=summary,
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #     self.knowledge_base.append(dict(label='description', text=description,
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #     self.knowledge_base.append(dict(label='method', text='LASSO',
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #     self.knowledge_base.append(dict(label='active-inputs', value=np.sum(self.model.coef_ != 0),
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #
-    # def generate_figures(self):
-    #     # Plot training data against fit
-    #     fig = plt.figure(figsize=(5, 4))
-    #     ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-    #     y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-    #     sorted_y_hat = np.sort(y_hat)
-    #     ax.plot(sorted_y_hat, sorted_y_hat, color="blue")
-    #     ax.scatter(y_hat, self.data.y, color="red", marker="o")
-    #     ax.set_title("Training data against fit")
-    #     ax.set_xlabel("Model fit")
-    #     ax.set_ylabel("Training data")
-    #     fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lasso-train-fit.pdf"))
-    #     plt.close()
-    #     # Plot data against all dimensions
-    #     for dim in range(self.data.X.shape[1]):
-    #         fig = plt.figure(figsize=(5, 4))
-    #         ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-    #         ax.scatter(self.data.X[:, dim], self.data.y, color="red", marker="o")
-    #         ax.set_title("Training data against %s" % self.data.X_labels[dim])
-    #         ax.set_xlabel(self.data.X_labels[dim])
-    #         ax.set_ylabel("Training data")
-    #         fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lasso-train-%s.pdf" % self.data.X_labels[dim].replace(' ', '')))
-    #         plt.close()
-    #     # Plot rest of model against fit
-    #     for dim in range(self.data.X.shape[1]):
-    #         fig = plt.figure(figsize=(5, 4))
-    #         ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-    #         y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-    #         component_fit = self.model.coef_[dim] * self.data.X[:, dim].ravel()
-    #         partial_resid = self.data.y - (y_hat - component_fit)
-    #         plot_idx = np.argsort(self.data.X[:, dim].ravel())
-    #         ax.plot(self.data.X[plot_idx, dim], component_fit[plot_idx], color="blue")
-    #         ax.scatter(self.data.X[:, dim], partial_resid, color="red", marker="o")
-    #         ax.set_title("Partial residual against %s" % self.data.X_labels[dim])
-    #         ax.set_xlabel(self.data.X_labels[dim])
-    #         ax.set_ylabel("Partial residual")
-    #         fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lasso-partial-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', '')))
-    #         plt.close()
-    #     # Plot residuals against each dimension
-    #     for dim in range(self.data.X.shape[1]):
-    #         fig = plt.figure(figsize=(5, 4))
-    #         ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-    #         y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-    #         resid = self.data.y - y_hat
-    #         ax.scatter(self.data.X[:, dim], resid, color="red", marker="o")
-    #         ax.set_title("Residuals against %s" % self.data.X_labels[dim])
-    #         ax.set_xlabel(self.data.X_labels[dim])
-    #         ax.set_ylabel("Residuals")
-    #         fig.savefig(os.path.join(self.data.path, 'report', 'figures', "lasso-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', '')))
-    #         plt.close()
-    #     # FIXME - this is in the wrong place
-    #     self.generate_tex()
-    #
-    # def generate_tex(self):
-    #     tex_summary, tex_full = lin_mod_tex_description(coef=self.model.coef_, data=self.data, id='lasso',
-    #                                             y_hat=self.conditional_distributions[0].conditional_mean(self.data))
-    #     self.knowledge_base.append(dict(label='tex-summary', text=tex_summary,
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #     self.knowledge_base.append(dict(label='tex-description', text=tex_full,
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
+    def __init__(self, *args, **kwargs):
+        super(SKLassoReg, self).__init__(sklearn.linear_model.LassoLarsCV, *args, **kwargs)
 
 
 class SKLearnRandomForestReg(SKLearnModel):
+    """Good ol' random forest"""
 
-    def __init__(self):
-        super(SKLearnRandomForestReg, self).__init__(lambda: sklearn.ensemble.RandomForestRegressor(n_estimators=100))
-
-    # def generate_descriptions(self):
-    #     self.knowledge_base.append(dict(label='summary', text='I am random forest',
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #     self.knowledge_base.append(dict(label='description', text='I am still random forest',
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #
-    # def generate_figures(self):
-    #     # Plot training data against fit
-    #     fig = plt.figure(figsize=(5, 4))
-    #     ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-    #     y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-    #     sorted_y_hat = np.sort(y_hat)
-    #     ax.plot(sorted_y_hat, sorted_y_hat, color="blue")
-    #     ax.scatter(y_hat, self.data.y, color="red", marker="o")
-    #     ax.set_title("Training data against fit")
-    #     ax.set_xlabel("Model fit")
-    #     ax.set_ylabel("Training data")
-    #     fig.savefig(os.path.join(self.data.path, 'report', 'figures', "rf-train-fit.pdf"))
-    #     plt.close()
-
-
-class BICBackwardsStepwiseLin(object):
-    """BIC guided backwards stepwise linear regression"""
-
-    def __init__(self):
-        self.model = SKLinearModel()
-        self.data = None
-        self.knowledge_base = []
-        self.conditional_distributions = []
-        self.subset = []
-
-    def load_data(self, data):
-        assert isinstance(data, XYDataSet)
-        self.data = data
-
-    def run(self):
-        self.subset = range(len(self.data.X_labels))
-        self.model.load_data(self.data)
-        self.model.run()
-        current_BIC = util.BIC(self.model.conditional_distributions[0], self.data, len(self.model.model.coef_))
-        improvement = True
-        best_model = None  # Removing warning message
-        best_subset = None  # Removing warning message
-        while improvement and (len(self.subset) > 0):
-            improvement = False
-            best_BIC = current_BIC
-            # Try removing all input variables
-            for i in range(len(self.subset)):
-                temp_subset = self.subset[:i] + self.subset[(i+1):]
-                if len(temp_subset) > 0:
-                    temp_data_set = self.data.input_subset(temp_subset)
-                    temp_model = SKLinearModel()
-                    temp_model.load_data(temp_data_set)
-                    temp_model.run()
-                    temp_BIC = util.BIC(temp_model.conditional_distributions[0], temp_data_set, len(temp_model.model.coef_))
-                    if temp_BIC < best_BIC:
-                        best_model = temp_model
-                        best_subset = temp_subset
-                        best_BIC = temp_BIC
-                else:
-                    temp_dist = MeanPlusGaussian(mean=self.data.y.mean(), sd=0)
-                    temp_BIC = util.BIC(temp_dist, self.data, 0)
-                    if temp_BIC < best_BIC:
-                        best_model = DistributionModel(temp_dist)
-                        best_subset = temp_subset
-                        best_BIC = temp_BIC
-            if best_BIC < current_BIC:
-                improvement = True
-                self.model = best_model
-                self.subset = best_subset
-                current_BIC = best_BIC
-        y_hat = self.model.conditional_distributions[0].conditional_mean(self.data.input_subset(self.subset))
-        sd = np.sqrt((sklearn.metrics.mean_squared_error(self.data.y, y_hat)))
-        #### FIXME - model.model is clearly ugly :)
-        if len(self.subset) > 0:
-            self.conditional_distributions = [SKLearnModelInputFilteredPlusGaussian(self.model.model, sd, self.subset)]
-        else:
-            self.conditional_distributions = [self.model.conditional_distributions[0]]
-            self.conditional_distributions[0].sd = sd
-        # self.generate_descriptions()
-
-    # def generate_descriptions(self):
-    #     if len(self.subset) > 0:
-    #         summary, description = lin_mod_txt_description(coef=self.model.model.coef_,
-    #                                                        data=self.data.input_subset(self.subset))
-    #     else:
-    #         summary, description = lin_mod_txt_description(coef=[],
-    #                                                        data=self.data.input_subset(self.subset))
-    #     self.knowledge_base.append(dict(label='summary', text=summary,
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #     self.knowledge_base.append(dict(label='description', text=description,
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #     self.knowledge_base.append(dict(label='method', text='BIC stepwise',
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #     self.knowledge_base.append(dict(label='active-inputs', value=len(self.subset),
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #
-    # def generate_figures(self):
-    #     # Plot training data against fit
-    #     fig = plt.figure(figsize=(5, 4))
-    #     ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-    #     y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-    #     sorted_y_hat = np.sort(y_hat)
-    #     ax.plot(sorted_y_hat, sorted_y_hat, color="blue")
-    #     ax.scatter(y_hat, self.data.y, color="red", marker="o")
-    #     ax.set_title("Training data against fit")
-    #     ax.set_xlabel("Model fit")
-    #     ax.set_ylabel("Training data")
-    #     fig.savefig(os.path.join(self.data.path, 'report', 'figures', "bic-train-fit.pdf"))
-    #     plt.close()
-    #     # Plot data against all dimensions
-    #     for dim in range(self.data.X.shape[1]):
-    #         fig = plt.figure(figsize=(5, 4))
-    #         ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-    #         ax.scatter(self.data.X[:, dim], self.data.y, color="red", marker="o")
-    #         ax.set_title("Training data against %s" % self.data.X_labels[dim])
-    #         ax.set_xlabel(self.data.X_labels[dim])
-    #         ax.set_ylabel("Training data")
-    #         fig.savefig(os.path.join(self.data.path, 'report', 'figures', "bic-train-%s.pdf" % self.data.X_labels[dim].replace(' ', '')))
-    #         plt.close()
-    #     # Plot rest of model against fit
-    #     dim_count = 0 # FIXME - this is hacky
-    #     for dim in range(self.data.X.shape[1]):
-    #         if dim in self.subset:
-    #             fig = plt.figure(figsize=(5, 4))
-    #             ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-    #             y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-    #             component_fit = self.model.model.coef_[dim_count] * self.data.X[:, dim].ravel() # FIXME model.model
-    #             partial_resid = self.data.y - (y_hat - component_fit)
-    #             plot_idx = np.argsort(self.data.X[:, dim].ravel())
-    #             ax.plot(self.data.X[plot_idx, dim], component_fit[plot_idx], color="blue")
-    #             ax.scatter(self.data.X[:, dim], partial_resid, color="red", marker="o")
-    #             ax.set_title("Partial residual against %s" % self.data.X_labels[dim])
-    #             ax.set_xlabel(self.data.X_labels[dim])
-    #             ax.set_ylabel("Partial residual")
-    #             fig.savefig(os.path.join(self.data.path, 'report', 'figures', "bic-partial-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', '')))
-    #             plt.close()
-    #             dim_count += 1
-    #     # Plot residuals against each dimension
-    #     for dim in range(self.data.X.shape[1]):
-    #         fig = plt.figure(figsize=(5, 4))
-    #         ax = fig.add_subplot(1,1,1) # one row, one column, first plot
-    #         y_hat = self.conditional_distributions[0].conditional_mean(self.data)
-    #         resid = self.data.y - y_hat
-    #         ax.scatter(self.data.X[:, dim], resid, color="red", marker="o")
-    #         ax.set_title("Residuals against %s" % self.data.X_labels[dim])
-    #         ax.set_xlabel(self.data.X_labels[dim])
-    #         ax.set_ylabel("Residuals")
-    #         fig.savefig(os.path.join(self.data.path, 'report', 'figures', "bic-resid-%s.pdf" % self.data.X_labels[dim].replace(' ', '')))
-    #         plt.close()
-    #     # FIXME - this is in the wrong place
-    #     self.generate_tex()
-    #
-    # def generate_tex(self):
-    #     coefs = [0] * len(self.data.X_labels)
-    #     for (i, dim) in enumerate(self.subset):
-    #         coefs[dim] = self.model.model.coef_[i] # FIXME model.model
-    #     tex_summary, tex_full = lin_mod_tex_description(coef=coefs, data=self.data, id='bic',
-    #                                                 y_hat=self.conditional_distributions[0].conditional_mean(self.data))
-    #     self.knowledge_base.append(dict(label='tex-summary', text=tex_summary,
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
-    #     self.knowledge_base.append(dict(label='tex-description', text=tex_full,
-    #                                     distribution=self.conditional_distributions[0], data=self.data))
+    def __init__(self, *args, **kwargs):
+        super(SKLearnRandomForestReg, self).__init__(lambda: sklearn.ensemble.RandomForestRegressor(n_estimators=100),
+                                                     *args, **kwargs)
 
 ##############################################
 #                                            #
@@ -510,7 +207,7 @@ class CrossValidationExpert(Agent):
                 break
             temp_expert = self.sub_expert_class()
             temp_expert.load_data(train_data)
-            temp_expert.run()
+            temp_expert.fit()
             distributions = temp_expert.conditional_distributions
 
             fold_count += 1
@@ -530,7 +227,7 @@ class CrossValidationExpert(Agent):
             # Train on full data
             self.sub_expert = self.sub_expert_class()
             self.sub_expert.load_data(self.data)
-            self.sub_expert.run()
+            self.sub_expert.fit()
             # Report results of cross validation
             for (rmse_score, var_score, distribution) in zip(cv_RMSE, cv_var_explained,
                                                              self.sub_expert.conditional_distributions):
@@ -568,10 +265,11 @@ class DataDoublingExpert(Agent):
         self.data = None
         self.conditional_distributions = []
 
-        self.data_size = 10
+        self.data_size = 100
         self.state = 'run'
 
         self.terminate_next_run = False
+        self.epoch = 0
 
     def load_data(self, data):
         assert isinstance(data, XSeqDataSet)
@@ -582,6 +280,7 @@ class DataDoublingExpert(Agent):
         if self.terminate_next_run:
             self.terminated = True
         else:
+            self.epoch += 1
             # Reduce data size if appropriate - if so this is the last run
             if self.data_size >= self.data.X.shape[0]:
                 self.data_size = self.data.X.shape[0]
@@ -596,6 +295,8 @@ class DataDoublingExpert(Agent):
             # Create and launch sub expert process
             p = Thread(target=start_communication, args=(sub_expert,))
             p.start()
+            # Delete local reference to sub_expert to avoid confusion
+            del sub_expert
             self.child_processes = [p]
             self.state = 'wait'
             # Make the data larger for next time
@@ -608,7 +309,11 @@ class DataDoublingExpert(Agent):
             self.state = 'run'
         while not self.termination_pending:
             try:
-                self.outbox.append(self.expert_queue.get_nowait())
+                message = self.expert_queue.get_nowait()
+                # Message received, add some additional details
+                message['epoch'] = self.epoch
+                message['sender'] = self.name
+                self.outbox.append(message)
             except q_Empty:
                 break
 
