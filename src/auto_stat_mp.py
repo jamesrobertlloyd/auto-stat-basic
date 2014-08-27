@@ -15,7 +15,6 @@ matplotlib.use('Agg')  # Use a non-interactive backend
 from matplotlib import rcParams
 rcParams.update({'figure.autolayout': True})  # Prevents labels getting chopped - but can cause graph squashing
 
-from sklearn.cross_validation import KFold
 # from sklearn.cross_decomposition import CCA
 
 from multiprocessing import Process
@@ -37,9 +36,11 @@ import time
 import sys
 import traceback
 
+from signal import signal, SIGPIPE, SIG_DFL
+
 # import util
 from data import XSeqDataSet
-from agent import Agent
+from agent import Agent, start_communication
 import experts
 import latex_util
 
@@ -89,16 +90,14 @@ class Manager(Agent):
         data_sets = self.data.subsets([train_indices, test_indices])
         train_data = data_sets[0]
         test_data = data_sets[1]
-        # Create folds of training data
-        train_folds = KFold(train_data.X.shape[0], n_folds=5, indices=False)
-        train_data.set_cv_indices(train_folds)
         # Initialise list of experts
         # self.experts = [DummyModel(number=5, max_actions=10),
         #                 DummyModel(number=7, max_actions=5)]
-        self.experts = [experts.CrossValidationExpert(experts.SKLinearModel),
-                        experts.CrossValidationExpert(experts.SKLassoReg)]
-        # Load data into experts
-        for expert in self.experts:
+        self.experts = [experts.DataDoublingExpert(lambda: experts.CrossValidationExpert(experts.SKLinearModel)),
+                        experts.DataDoublingExpert(lambda: experts.CrossValidationExpert(experts.SKLassoReg))]
+        # Load data into experts and set name
+        for (i, expert) in enumerate(self.experts):
+            expert.name = '%dof%d' % (i + 1, len(self.experts))
             expert.load_data(train_data)
         # Start experts running in separate processes and set up communication
         for expert in self.experts:
@@ -116,7 +115,7 @@ class Manager(Agent):
     def wait_for_experts(self):
         time.sleep(0.1)
         self.updated = False
-        while True:
+        while not self.termination_pending:
             try:
                 self.expert_reports.append(self.expert_queue.get_nowait())
                 self.updated = True
@@ -144,26 +143,14 @@ class Manager(Agent):
 
 ##############################################
 #                                            #
-#          Multiprocessing target            #
-#                                            #
-##############################################
-
-
-def start_communication(agent):
-    try:
-        agent.communicate()
-    except:
-        print("Thread for %s has died" % agent)
-        traceback.print_exc()
-
-##############################################
-#                                            #
 #                   Main                     #
 #                                            #
 ##############################################
 
 
 def main():
+    # Something to do with pipes that I don't understand
+    signal(SIGPIPE,SIG_DFL)  # http://newbebweb.blogspot.co.uk/2012/02/python-head-ioerror-errno-32-broken.html
     # Setup
     seed = 1
     np_rand_seed(seed)

@@ -10,10 +10,19 @@ from Queue import Queue as thread_q
 from Queue import Empty as q_Empty
 
 import time
+import traceback
+
+
+def start_communication(agent):
+    try:
+        agent.communicate()
+    except:
+        print("Thread for %s has died" % agent)
+        traceback.print_exc()
 
 
 class Agent(object):
-    def __init__(self, inbox_q=None, outbox_q=None, communication_sleep=1, child_timeout=60):
+    def __init__(self, inbox_q=None, outbox_q=None, communication_sleep=1, child_timeout=60, name=''):
         """
         Implements a basic communication and action loop
          - Get incoming messages from parent
@@ -33,6 +42,7 @@ class Agent(object):
 
         self.communication_sleep = communication_sleep
         self.child_timeout = child_timeout
+        self.name = name
 
         self.terminated = False
 
@@ -60,14 +70,13 @@ class Agent(object):
         # Send message to all children to terminate
         for q in self.queues_to_children:
             q.put(dict(label='terminate'))
-        # Attempt to join all child processes but always terminate them - terminate fast if possible
-        timeout = min(1, self.child_timeout)
-        while timeout <= self.child_timeout:
-            for p in self.child_processes:
-                p.join(timeout=timeout)
-                if hasattr(p, 'terminate'):
-                    p.terminate()
-            timeout *= 2
+        # Attempt to join all child processes
+        for p in self.child_processes:
+            p.join(timeout=self.child_timeout)
+        # Terminate any stragglers
+        for p in self.child_processes:
+            if hasattr(p, 'terminate'):  # Only processes can be terminated, not threads currently
+                p.terminate()
 
     def tidy_up(self):
         """Run anything pertinent before termination"""

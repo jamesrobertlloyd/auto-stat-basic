@@ -14,10 +14,17 @@ import numpy as np
 import sklearn
 import sklearn.linear_model
 import sklearn.ensemble
+from sklearn.cross_validation import KFold
+
+from multiprocessing import Process
+from threading import Thread
+from multiprocessing import Queue as multi_q
+from Queue import Queue as thread_q
+from Queue import Empty as q_Empty
 
 import time
 
-from agent import Agent
+from agent import Agent, start_communication
 from data import XYDataSet, XSeqDataSet
 import util
 
@@ -462,7 +469,7 @@ class BICBackwardsStepwiseLin(object):
 
 ##############################################
 #                                            #
-#             Cross validation               #
+#               Meta experts                 #
 #                                            #
 ##############################################
 
@@ -490,6 +497,9 @@ class CrossValidationExpert(Agent):
     def cross_validate(self):
         # Quick hack - turn into XY data set for initial testing purposes
         self.data = self.data.convert_to_XY()
+        # Set up cross validation scheme
+        train_folds = KFold(self.data.X.shape[0], n_folds=5, indices=False)
+        self.data.set_cv_indices(train_folds)
         # Calculate cross validated RMSE
         RMSE_sum = None
         var_explained_sum = None
@@ -536,5 +546,78 @@ class CrossValidationExpert(Agent):
             if not self.data is None:
                 self.cross_validate()
                 self.terminated = True
+            else:
+                time.sleep(1)
+
+
+class DataDoublingExpert(Agent):
+    """
+    Follows a data doubling strategy to turn any other expert into an anytime system
+    Assumes that the sub expert will terminate of its own accord
+    """
+    def __init__(self, sub_expert_class, *args, **kwargs):
+        """
+        :type data: XSeqDataSet
+        """
+        super(DataDoublingExpert, self).__init__(*args, **kwargs)
+
+        self.sub_expert_class = sub_expert_class
+        self.expert_queue = thread_q()
+        self.queues_to_children = [thread_q()]
+
+        self.data = None
+        self.conditional_distributions = []
+
+        self.data_size = 10
+        self.state = 'run'
+
+        self.terminate_next_run = False
+
+    def load_data(self, data):
+        assert isinstance(data, XSeqDataSet)
+        self.data = data
+
+    def run_sub_expert(self):
+        # Should I terminate?
+        if self.terminate_next_run:
+            self.terminated = True
+        else:
+            # Reduce data size if appropriate - if so this is the last run
+            if self.data_size >= self.data.X.shape[0]:
+                self.data_size = self.data.X.shape[0]
+                self.terminate_next_run = True
+            # Create a new expert and hook up communication
+            sub_expert = self.sub_expert_class()
+            sub_expert.inbox_q = self.queues_to_children[0]
+            sub_expert.outbox_q = self.expert_queue
+            # Create and load data
+            subset_data = self.data.subsets([range(self.data_size)])[0]
+            sub_expert.load_data(subset_data)
+            # Create and launch sub expert process
+            p = Thread(target=start_communication, args=(sub_expert,))
+            p.start()
+            self.child_processes = [p]
+            self.state = 'wait'
+            # Make the data larger for next time
+            self.data_size *= 2
+
+    def wait_for_sub_expert(self):
+        time.sleep(0.1)
+        if not self.child_processes[0].is_alive():
+            # Sub expert has finished - time to run the next expert after reading any final messages
+            self.state = 'run'
+        while not self.termination_pending:
+            try:
+                self.outbox.append(self.expert_queue.get_nowait())
+            except q_Empty:
+                break
+
+    def next_action(self):
+        if not self.termination_pending:
+            if not self.data is None:
+                if self.state == 'run':
+                    self.run_sub_expert()
+                elif self.state == 'wait':
+                    self.wait_for_sub_expert()
             else:
                 time.sleep(1)
