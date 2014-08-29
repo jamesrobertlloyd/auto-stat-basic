@@ -6,7 +6,7 @@ Created August 2014
 @authors: James Robert Lloyd (james.robert.lloyd@gmail.com)
 """
 
-from Queue import Queue as thread_q
+from multiprocessing import Queue as multi_q
 from Queue import Empty as q_Empty
 
 import time
@@ -29,8 +29,8 @@ class Agent(object):
          - Perform next action
          - Send outgoing messages to parent
          - Check to see if terminated
-        :type inbox_q: thread_q
-        :type outbox_q: thread_q
+        :type inbox_q: multi_q
+        :type outbox_q: multi_q
         """
         self.inbox = []
         self.outbox = []

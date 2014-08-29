@@ -20,7 +20,6 @@ rcParams.update({'figure.autolayout': True})  # Prevents labels getting chopped 
 from multiprocessing import Process
 from threading import Thread
 from multiprocessing import Queue as multi_q
-from Queue import Queue as thread_q
 from Queue import Empty as q_Empty
 
 # from scipy import stats
@@ -179,8 +178,8 @@ def main():
     # data.load_from_file('../data/test-lin/simple-01.csv')
     data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
     # Setup up manager and communication
-    queue_to_manager = thread_q()
-    queue_to_main = thread_q()
+    queue_to_manager = multi_q()
+    queue_to_main = multi_q()
     manager = Manager(inbox_q=queue_to_manager, outbox_q=queue_to_main)
     manager.load_data(data)
     # Start manager in new process / thread

@@ -16,17 +16,16 @@ import sklearn.linear_model
 import sklearn.ensemble
 from sklearn.cross_validation import KFold
 
-from multiprocessing import Process
+# from multiprocessing import Process
 from threading import Thread
 from multiprocessing import Queue as multi_q
-from Queue import Queue as thread_q
 from Queue import Empty as q_Empty
 
 import time
 
 from agent import Agent, start_communication
 from data import XYDataSet, XSeqDataSet
-import util
+# import util
 
 ##############################################
 #                                            #
@@ -259,8 +258,8 @@ class DataDoublingExpert(Agent):
         super(DataDoublingExpert, self).__init__(*args, **kwargs)
 
         self.sub_expert_class = sub_expert_class
-        self.expert_queue = thread_q()
-        self.queues_to_children = [thread_q()]
+        self.expert_queue = multi_q()
+        self.queues_to_children = [multi_q()]
 
         self.data = None
         self.conditional_distributions = []
