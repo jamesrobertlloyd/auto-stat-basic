@@ -44,7 +44,7 @@ import experts
 import latex_util
 
 #### TODO
-#### - Create some basic full generative model experts and score by MMD (arc kernel required?)
+#### - Create some basic full generative model experts and score by MMD (arc kernel required for missing data?)
 #### - Agents should have a max lifespan at birth to reduce risk of orphans
 #### - Stop using NIPS template - switch to something generic
 #### - Make HTML versions of all tex output
