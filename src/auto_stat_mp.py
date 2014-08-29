@@ -51,6 +51,7 @@ import latex_util
 
 #### FIXME
 #### - XSeqDataSet will not uniqify labels when columns > 100
+#### - Random forest causes thread problems when asked to shutdown before completion - don't know why
 
 
 class Manager(Agent):
@@ -88,6 +89,9 @@ class Manager(Agent):
         # Initialise list of experts
         # self.experts = [DummyModel(number=5, max_actions=10),
         #                 DummyModel(number=7, max_actions=5)]
+        # self.experts = [experts.DataDoublingExpert(lambda:
+        #                                            experts.CrossValidationExpert(experts.SKLearnRandomForestReg))]
+        # self.experts = [experts.DataDoublingExpert(lambda: experts.CrossValidationExpert(experts.SKLassoReg))]
         self.experts = [experts.DataDoublingExpert(lambda: experts.CrossValidationExpert(experts.SKLinearModel)),
                         experts.DataDoublingExpert(lambda: experts.CrossValidationExpert(experts.SKLassoReg)),
                         experts.DataDoublingExpert(lambda:
@@ -163,6 +167,8 @@ class Manager(Agent):
                 self.wait_for_experts()
             elif self.state == 'produce report':
                 self.produce_report()
+        # if self.termination_pending or self.terminated:
+        #     print 'Manager will terminate'
 
 
 def main():

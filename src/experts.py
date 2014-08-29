@@ -202,7 +202,9 @@ class CrossValidationExpert(Agent):
         fold_count = 0
 
         for train_data, test_data in self.data.cv_subsets:
+            # print('CV')
             if self.termination_pending:
+                # print('Received termination call during CV')
                 break
             temp_expert = self.sub_expert_class()
             temp_expert.load_data(train_data)
@@ -221,6 +223,8 @@ class CrossValidationExpert(Agent):
                                                     np.var(test_data.y)))
         if not self.termination_pending:
 
+            # print('Full')
+
             cv_RMSE = RMSE_sum / fold_count
             cv_var_explained = var_explained_sum / fold_count
             # Train on full data
@@ -237,6 +241,8 @@ class CrossValidationExpert(Agent):
                 self.outbox.append(dict(label='CV-RMSE', distribution=distribution, value=rmse_score,
                                         var_explained=var_score, data=self.data))
 
+            # print('Full complete')
+
     def next_action(self):
         if not self.termination_pending:
             if not self.data is None:
@@ -244,6 +250,8 @@ class CrossValidationExpert(Agent):
                 self.terminated = True
             else:
                 time.sleep(1)
+        # if self.termination_pending or self.terminated:
+        #     print 'Cross validater will terminate'
 
 
 class DataDoublingExpert(Agent):
@@ -325,3 +333,5 @@ class DataDoublingExpert(Agent):
                     self.wait_for_sub_expert()
             else:
                 time.sleep(1)
+        # if self.termination_pending or self.terminated:
+        #     print 'Doubler will terminate'
