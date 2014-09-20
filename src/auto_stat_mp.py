@@ -44,12 +44,12 @@ import experts
 import latex_util
 
 #### TODO
-#### - Create some basic full generative models and score by held out likelihood
-####   Independent Gaussians, independent uniforms, Gaussian + linear model, MoG, FA
+#### - Nonparametric density estimate, (these are nice to haves - FA, Linear DAG)
+#### - And what about also including something with t - distributed errors
+#### - Pretty plots - Stop using NIPS template - switch to something generic - switch to HTML?
+#### - Model checks appropriate for generative models - how do I ensure I still have power?
 #### - Try scoring by MMD (arc kernel required for missing data?) - might need efficient variants of MMD
 #### - Agents should have a max lifespan at birth to reduce risk of orphans
-#### - Stop using NIPS template - switch to something generic
-#### - Make HTML versions of all tex output
 
 #### FIXME
 #### - XSeqDataSet will not uniqify labels when columns > 100
@@ -79,7 +79,7 @@ class Manager(Agent):
         # Write placeholder report
         self.outbox.append(dict(label='report', text='Your report is being prepared', tex=latex_util.waiting_tex()))
         # Partition data in train / test
-        n_data = self.data.X.shape[0]
+        n_data = self.data.arrays['X'].shape[0]
         random_perm = range(n_data)
         random.shuffle(random_perm)
         proportion_train = 0.5
@@ -94,10 +94,43 @@ class Manager(Agent):
         # self.experts = [experts.DataDoublingExpert(lambda:
         #                                            experts.CrossValidationExpert(experts.SKLearnRandomForestReg))]
         # self.experts = [experts.DataDoublingExpert(lambda: experts.CrossValidationExpert(experts.SKLassoReg))]
-        self.experts = [experts.DataDoublingExpert(lambda: experts.CrossValidationExpert(experts.SKLinearModel)),
-                        experts.DataDoublingExpert(lambda: experts.CrossValidationExpert(experts.SKLassoReg)),
+        # self.experts = [experts.DataDoublingExpert(lambda: experts.SamplesCrossValidationExpert(experts.SKLinearModel)),
+        #                 experts.DataDoublingExpert(lambda: experts.SamplesCrossValidationExpert(experts.SKLassoReg)),
+        #                 experts.DataDoublingExpert(lambda:
+        #                                            experts.SamplesCrossValidationExpert(experts.SKLearnRandomForestReg))]
+        # TODO - revisit this heuristic for lengthscale selection - especially if data not continuous
+        # scoring_expert = experts.MMDScorer(lengthscales=np.std(self.data.arrays['X'], 0))
+        scoring_expert = experts.LLHScorer()
+        self.experts = [experts.DataDoublingExpert(lambda:
+                                                   experts.SamplesCrossValidationExpert(
+                                                       experts.IndependentGaussianLearner,
+                                                       scoring_expert)),
                         experts.DataDoublingExpert(lambda:
-                                                   experts.CrossValidationExpert(experts.SKLearnRandomForestReg))]
+                                                   experts.SamplesCrossValidationExpert(
+                                                       experts.MoGLearner,
+                                                       scoring_expert)),
+                        experts.DataDoublingExpert(lambda:
+                                                   experts.SamplesCrossValidationExpert(
+                                                       lambda:
+                                                       experts.RegressionLearner(experts.IndependentGaussianLearner,
+                                                                                 experts.SKLinearModel),
+                                                       scoring_expert)),
+                        experts.DataDoublingExpert(lambda:
+                                                   experts.SamplesCrossValidationExpert(
+                                                       lambda:
+                                                       experts.RegressionLearner(experts.IndependentGaussianLearner,
+                                                                                 experts.SKLASSO),
+                                                       scoring_expert)),
+                        experts.DataDoublingExpert(lambda:
+                                                   experts.SamplesCrossValidationExpert(
+                                                       lambda: experts.RegressionLearner(experts.MoGLearner,
+                                                                                         experts.SKLinearModel),
+                                                       scoring_expert)),
+                        experts.DataDoublingExpert(lambda:
+                                                   experts.SamplesCrossValidationExpert(
+                                                       lambda: experts.RegressionLearner(experts.MoGLearner,
+                                                                                         experts.SKLASSO),
+                                                       scoring_expert))]
         # Load data into experts and set name
         for (i, expert) in enumerate(self.experts):
             expert.name = '%dof%d' % (i + 1, len(self.experts))
@@ -127,7 +160,9 @@ class Manager(Agent):
         self.state = 'produce report'
 
     def strip_old_epoch_distributions(self):
-        '''Produce a list of candidate models from their latest epochs'''
+        """Produce a list of candidate models from their latest epochs"""
+        # FIXME - this function should not exist, I should choose models based on expected utility - this is how I
+        # FIXME - should guard against low data (and therefore high variance) results appearing better than they are
         # Produce a list of all sender names
         senders = []
         for message in self.all_dist_msgs:
@@ -183,8 +218,10 @@ def main():
     random.seed(seed)
     # Load data
     data = XSeqDataSet()
-    # data.load_from_file('../data/test-lin/simple-01.csv')
-    data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
+    # data.load_from_file('../data/test-lin/simple-09.csv')
+    # data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
+    # data.load_from_file('../data/test-lin/iris-simple.csv')
+    data.load_from_file('../data/test-lin/stovesmoke-no-outliers.csv')
     # Setup up manager and communication
     queue_to_manager = multi_q()
     queue_to_main = multi_q()

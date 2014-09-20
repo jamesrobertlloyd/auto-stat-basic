@@ -14,7 +14,9 @@ import numpy as np
 import sklearn
 import sklearn.linear_model
 import sklearn.ensemble
+from sklearn.mixture import GMM
 from sklearn.cross_validation import KFold
+from scipy import stats
 
 # from multiprocessing import Process
 from threading import Thread
@@ -24,8 +26,8 @@ from Queue import Empty as q_Empty
 import time
 
 from agent import Agent, start_communication
-from data import XYDataSet, XSeqDataSet
-# import util
+from data import XSeqDataSet, XYDataSet
+import util
 
 ##############################################
 #                                            #
@@ -34,22 +36,77 @@ from data import XYDataSet, XSeqDataSet
 ##############################################
 
 
-class MeanPlusGaussian(object):
-    """Conditional distribution - mean plus iid Gaussian noise"""
+class Independent1dGaussians(object):
+    # TODO - This should derive from 1d objects and an appropriate DAG
+    """Independent Gaussians"""
 
-    def __init__(self, mean, sd):
-        self.mean = mean
-        self.sd = sd
-
-    def clear_cache(self):
-        # FIXME - this is not how caching should work - SUCH A HACK
-        pass
-
-    def conditional_mean(self, data):
-        return self.mean * np.ones((data.X.shape[0])).ravel()
+    def __init__(self, means, stds):
+        self.means = means
+        self.stds = stds
 
     def conditional_sample(self, data):
-        return (self.conditional_mean(data) + (self.sd * np.random.randn(data.X.shape[0], 1)).ravel()).ravel()
+        assert isinstance(data, XSeqDataSet)
+        return np.tile(self.means, (data.arrays['X'].shape[0], 1)) + \
+               np.tile(self.stds, (data.arrays['X'].shape[0], 1)) * \
+               np.random.randn(*data.arrays['X'].shape)
+
+    def llh(self, data):
+        llh = 0
+        for j in range(data.arrays['X'].shape[1]):
+            llh += np.sum(stats.norm.logpdf(data.arrays['X'][:, j], loc=self.means[j], scale=self.stds[j]))
+        return llh
+
+
+class Independent1dUniforms(object):
+    # TODO - This should derive from 1d objects and an appropriate DAG
+    """Independent uniforms"""
+
+    def __init__(self, lefts, rights):
+        self.lefts = lefts
+        self.rights = rights
+
+    def conditional_sample(self, data):
+        assert isinstance(data, XSeqDataSet)
+        return np.tile(self.lefts, (data.arrays['X'].shape[0], 1)) + \
+               np.tile(self.rights - self.lefts, (data.arrays['X'].shape[0], 1)) * \
+               np.random.random(data.arrays['X'].shape)
+
+    def llh(self, data):
+        # if np.all(np.tile(self.lefts, (data.arrays['X'].shape[0], 1)) <= data.arrays['X']) and \
+        #    np.all(np.tile(self.rights, (data.arrays['X'].shape[0], 1)) >= data.arrays['X']):
+        #     return - data.arrays['X'].shape[0] * np.sum(np.log(self.rights - self.lefts))
+        # else:
+        #     return -np.Inf
+        llh = 0
+        for j in range(data.arrays['X'].shape[1]):
+            llh += np.sum(stats.uniform(loc=self.lefts[j],
+                                        scale=self.rights[j] - self.lefts[j]).logpdf(data.arrays['X'][:, j]))
+        return llh
+
+
+class MoG(object):
+    """Mixture of Gaussians"""
+
+    def __init__(self, weights, means, stds, sklearn_mog=None):
+        # print weights.size
+        self.weights = weights
+        self.means = means
+        self.stds = stds
+        self.sklearn_mog = sklearn_mog
+
+    def conditional_sample(self, data):
+        assert isinstance(data, XSeqDataSet)
+        sample = np.zeros(data.arrays['X'].shape)
+        for i in range(sample.shape[0]):
+            if self.weights.size == 1:
+                cluster = 0
+            else:
+                cluster = np.random.randint(low=0, high=self.weights.size-1)
+            sample[i] = self.means[cluster] + np.random.randn(1, data.arrays['X'].shape[1]) * self.stds[cluster]
+        return sample
+
+    def llh(self, data):
+        return np.sum(self.sklearn_mog.score(data.arrays['X']))
 
 
 class SKLearnModelPlusGaussian(object):
@@ -58,44 +115,112 @@ class SKLearnModelPlusGaussian(object):
     def __init__(self, model, sd):
         self.model = model
         self.sd = sd
-        self.conditional_mean_ = None
-
-    def clear_cache(self):
-        # FIXME - this is not how caching should work - SUCH A HACK
-        self.conditional_mean_ = None
 
     def conditional_mean(self, data):
-        # FIXME - this is not how caching should work - SUCH A HACK
-        if self.conditional_mean_ is None:
-            self.conditional_mean_ = self.model.predict(data.X).ravel()
-        return self.conditional_mean_
+        return self.model.predict(data.arrays['X']).ravel()
 
     def conditional_sample(self, data):
         return (self.conditional_mean(data) + (self.sd * np.random.randn(data.X.shape[0], 1)).ravel()).ravel()
 
+    def llh(self, data):
+        data_minus_mean = data.arrays['Y'].ravel() - self.conditional_mean(data)
+        llh = np.sum(stats.norm.logpdf(data_minus_mean, loc=0, scale=self.sd))
+        return llh
 
-class SKLearnModelInputFilteredPlusGaussian(object):
-    """Conditional distribution based on sklearn model with iid Gaussian noise"""
-    # FIXME - IRL this should be created with a pre-processing object
 
-    def __init__(self, model, sd, subset):
-        self.model = model
-        self.sd = sd
-        self.subset = subset
-        self.conditional_mean_ = None
+class RegressionDAG(object):
+    """Output caused by inputs"""
 
-    def clear_cache(self):
-        # FIXME - this is not how caching should work - SUCH A HACK
-        self.conditional_mean_ = None
-
-    def conditional_mean(self, data):
-        # FIXME - this is not how caching should work - SUCH A HACK
-        if self.conditional_mean_ is None:
-            self.conditional_mean_ = self.model.predict(data.input_subset(self.subset).X)
-        return self.conditional_mean_
+    def __init__(self, output_index, input_distribution, output_distribution):
+        # print weights.size
+        self.output_index = output_index
+        self.input_distribution = input_distribution
+        self.output_distribution = output_distribution
 
     def conditional_sample(self, data):
-        return (self.conditional_mean(data) + (self.sd * np.random.randn(data.X.shape[0], 1)).ravel()).ravel()
+        assert isinstance(data, XSeqDataSet)
+        sample = np.zeros(data.arrays['X'].shape)
+
+        input_indices = list(range(self.output_index)) + \
+                        list(range(self.output_index + 1, data.arrays['X'].shape[1], 1))
+
+        inputs = data.variable_subsets(input_indices)
+        outputs = data.variable_subsets([self.output_index])
+
+        X_data = inputs
+
+        XY_data = XYDataSet()
+        XY_data.labels['X'] = inputs.labels['X']
+        XY_data.labels['Y'] = outputs.labels['X']
+        XY_data.arrays['X'] = inputs.arrays['X']
+        XY_data.arrays['Y'] = outputs.arrays['X']
+
+        X_sample = self.input_distribution.conditional_sample(X_data)
+        XY_data.arrays['X'] = X_sample
+        Y_sample = self.output_distribution.conditional_samples(XY_data)
+
+        sample[:, input_indices] = X_sample
+        sample[:, self.output_index] = Y_sample
+        return sample
+
+    def llh(self, data):
+        assert isinstance(data, XSeqDataSet)
+        sample = np.zeros(data.arrays['X'].shape)
+
+        input_indices = list(range(self.output_index)) + \
+                        list(range(self.output_index + 1, data.arrays['X'].shape[1], 1))
+
+        inputs = data.variable_subsets(input_indices)
+        outputs = data.variable_subsets([self.output_index])
+
+        X_data = inputs
+
+        XY_data = XYDataSet()
+        XY_data.labels['X'] = inputs.labels['X']
+        XY_data.labels['Y'] = outputs.labels['X']
+        XY_data.arrays['X'] = inputs.arrays['X']
+        XY_data.arrays['Y'] = outputs.arrays['X']
+
+        llh = self.input_distribution.llh(X_data)
+        llh += self.output_distribution.llh(XY_data)
+        return llh
+
+##############################################
+#                                            #
+#                 Scorers                    #
+#                                            #
+##############################################
+
+
+class ZeroScorer(object):
+    """Dummy class for scoring stuff"""
+    def __init__(self):
+        pass
+
+    def score(self, data, distribution):
+        return 0
+
+
+class MMDScorer(object):
+    """Maximum mean discrepancy of two distributions estimated from samples"""
+    def __init__(self, lengthscales):
+        self.lengthscales = lengthscales
+
+    def score(self, data, distribution):
+        X = data.arrays['X']
+        Y = distribution.conditional_sample(data)  # In the future only manipulated inputs will be given
+        return util.MMD(X, Y, self.lengthscales)
+
+
+class LLHScorer(object):
+    """Pointwise log likelihood"""
+    def __init__(self):
+        pass
+
+    @staticmethod
+    def score(data, distribution):
+        # Converted to per data point llh
+        return distribution.llh(data) / data.arrays['X'].shape[0]
 
 ##############################################
 #                                            #
@@ -104,18 +229,114 @@ class SKLearnModelInputFilteredPlusGaussian(object):
 ##############################################
 
 
+# TODO - is this used anywhere?
 class DistributionModel(object):
     """Wrapper for a distribution"""
     def __init__(self, dist):
         self.conditional_distributions = [dist]
 
 
-class SKLearnModel(Agent):
-    """Wrapper for sklearn models"""
+class IndependentGaussianLearner(Agent):
+    """
+    Fits independent Gaussians to data
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(IndependentGaussianLearner, self).__init__(*args, **kwargs)
+
+        self.data = None
+        self.conditional_distributions = []
+
+    def load_data(self, data):
+        assert isinstance(data, XSeqDataSet)
+        self.data = data
+
+    def fit(self):
+        means = np.mean(self.data.arrays['X'], 0)
+        stds = np.std(self.data.arrays['X'], 0)
+        # TODO - This should be composed of 1d Gaussians and a DAG
+        self.conditional_distributions = [Independent1dGaussians(means=means, stds=stds)]
+
+    @staticmethod
+    def generate_descriptions():
+        # I can be replaced with a generic description routine - e.g. average predictive comparisons
+        raise RuntimeError('Description not implemented')
+
+
+class IndependentUniformLearner(Agent):
+    """
+    Fits independent uniforms to data
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(IndependentUniformLearner, self).__init__(*args, **kwargs)
+
+        self.data = None
+        self.conditional_distributions = []
+
+    def load_data(self, data):
+        assert isinstance(data, XSeqDataSet)
+        self.data = data
+
+    def fit(self):
+        # TODO - this is not a good way to learn uniforms
+        lefts = np.min(self.data.arrays['X'], 0)
+        rights = np.max(self.data.arrays['X'], 0)
+        widths = rights - lefts
+        lefts = lefts - 0.1  * widths
+        rights = rights + 0.1 * widths
+        # TODO - This should be composed of 1d uniforms and a DAG
+        self.conditional_distributions = [Independent1dUniforms(lefts=lefts, rights=rights)]
+
+    @staticmethod
+    def generate_descriptions():
+        # I can be replaced with a generic description routine - e.g. average predictive comparisons
+        raise RuntimeError('Description not implemented')
+
+
+class MoGLearner(Agent):
+    """
+    Fits mixture of Gaussians to data
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(MoGLearner, self).__init__(*args, **kwargs)
+
+        self.data = None
+        self.conditional_distributions = []
+
+    def load_data(self, data):
+        assert isinstance(data, XSeqDataSet)
+        self.data = data
+
+    def fit(self):
+        best_model = None
+        best_BIC = None
+        for n_components in range(1, 11, 1):
+            sk_learner = GMM(n_components=n_components, n_iter=250, n_init=5)
+            sk_learner.fit(self.data.arrays['X'])
+            BIC = sk_learner.bic(self.data.arrays['X'])
+            # print BIC
+            if (best_BIC is None) or (best_BIC > BIC):
+                best_BIC = BIC
+                best_model = sk_learner
+        weights = best_model.weights_
+        means = best_model.means_
+        # stds = np.sqrt(1 / best_model.precs_)
+        stds = np.sqrt(best_model.covars_)
+        self.conditional_distributions = [MoG(weights=weights, means=means, stds=stds, sklearn_mog=best_model)]
+
+    @staticmethod
+    def generate_descriptions():
+        # I can be replaced with a generic description routine - e.g. average predictive comparisons
+        raise RuntimeError('Description not implemented')
+
+
+class SKLearnModelLearner(Agent):
+    """Wrapper for sklearn regression models"""
 
     def __init__(self, base_class, *args, **kwargs):
-        super(SKLearnModel, self).__init__(*args, **kwargs)
-
+        super(SKLearnModelLearner, self).__init__(*args, **kwargs)
         self.sklearn_class = base_class
         self.model = self.sklearn_class()
         self.data = None
@@ -127,41 +348,93 @@ class SKLearnModel(Agent):
         self.data = data
 
     def fit(self):
-        self.model.fit(self.data.X, self.data.y)
-        y_hat = self.model.predict(self.data.X)
-        sd = np.sqrt((sklearn.metrics.mean_squared_error(self.data.y, y_hat)))
+        self.model.fit(self.data.arrays['X'], self.data.arrays['Y'].ravel())
+        y_hat = self.model.predict(self.data.arrays['X'])
+        sd = np.sqrt((sklearn.metrics.mean_squared_error(self.data.arrays['Y'], y_hat)))
         self.conditional_distributions = [SKLearnModelPlusGaussian(self.model, sd)]
-        # self.generate_descriptions()
+
+    @staticmethod
+    def generate_descriptions(self):
+        # I can be replaced with a generic description routine - e.g. average predictive comparisons
+        raise RuntimeError('Description not implemented')
+
+
+class SKLinearModel(SKLearnModelLearner):
+    """Simple linear regression model based on sklearn implementation"""
+
+    def __init__(self):
+        super(SKLinearModel, self).__init__(lambda: sklearn.linear_model.LinearRegression(fit_intercept=True,
+                                                                                          normalize=False,
+                                                                                          copy_X=True))
+
+
+class SKLASSO(SKLearnModelLearner):
+    """Simple linear regression model based on sklearn implementation"""
+
+    def __init__(self):
+        super(SKLASSO, self).__init__(lambda: sklearn.ensemble.RandomForestRegressor(n_estimators=100))
+
+class RegressionLearner(Agent):
+    """
+    Fits something to explain all inputs then explains one of the variables as conditional on the rest
+    Let's hope that this becomes an example of a generic DAG learning unit
+    """
+
+    def __init__(self, input_learner, output_learner, *args, **kwargs):
+        super(RegressionLearner, self).__init__(*args, **kwargs)
+
+        self.data = None
+        self.conditional_distributions = []
+
+        self.input_learner = input_learner
+        self.output_learner = output_learner
+
+    def load_data(self, data):
+        assert isinstance(data, XSeqDataSet)
+        self.data = data
+
+    def fit(self):
+        best_llh = -np.Inf
+        best_distribution = None
+        # best_index = None
+
+        for input_var in range(self.data.arrays['X'].shape[1]):
+            inputs = self.data.variable_subsets(list(range(input_var)) +
+                                                list(range(input_var + 1, self.data.arrays['X'].shape[1], 1)))
+            outputs = self.data.variable_subsets([input_var])
+            input_agent = self.input_learner()
+
+            input_agent.load_data(inputs)
+            input_agent.fit()
+
+            XY_data = XYDataSet()
+            XY_data.labels['X'] = inputs.labels['X']
+            XY_data.labels['Y'] = outputs.labels['X']
+            XY_data.arrays['X'] = inputs.arrays['X']
+            XY_data.arrays['Y'] = outputs.arrays['X']
+
+            output_agent = self.output_learner()
+            output_agent.load_data(XY_data)
+            output_agent.fit()
+
+            conditional_distribution = RegressionDAG(input_var, input_agent.conditional_distributions[0],
+                                                                output_agent.conditional_distributions[0])
+
+            score = LLHScorer.score(self.data, conditional_distribution)
+            if score > best_llh:
+                best_llh = score
+                best_distribution = conditional_distribution
+                # best_index = input_var
+
+        # print best_index
+
+        self.conditional_distributions = [best_distribution]
 
     @staticmethod
     def generate_descriptions():
         # I can be replaced with a generic description routine - e.g. average predictive comparisons
         raise RuntimeError('Description not implemented')
 
-
-class SKLinearModel(SKLearnModel):
-    """Simple linear regression model based on sklearn implementation"""
-
-    def __init__(self, *args, **kwargs):
-        super(SKLinearModel, self).__init__(lambda: sklearn.linear_model.LinearRegression(fit_intercept=True,
-                                                                                          normalize=False,
-                                                                                          copy_X=True),
-                                            *args, **kwargs)
-
-
-class SKLassoReg(SKLearnModel):
-    """Lasso trained linear regression model"""
-
-    def __init__(self, *args, **kwargs):
-        super(SKLassoReg, self).__init__(sklearn.linear_model.LassoLarsCV, *args, **kwargs)
-
-
-class SKLearnRandomForestReg(SKLearnModel):
-    """Good ol' random forest"""
-
-    def __init__(self, *args, **kwargs):
-        super(SKLearnRandomForestReg, self).__init__(lambda: sklearn.ensemble.RandomForestRegressor(n_estimators=100),
-                                                     *args, **kwargs)
 
 ##############################################
 #                                            #
@@ -170,38 +443,36 @@ class SKLearnRandomForestReg(SKLearnModel):
 ##############################################
 
 
-class CrossValidationExpert(Agent):
+class SamplesCrossValidationExpert(Agent):
     """
-    Takes an expert as input, assumes the expert learns some number of conditional distributions, cross validates the
-    performance of these distributions, returns the distributions and cross validation scores to its parent
+    Takes an expert as input, assumes the expert learns some number of (conditional) distributions, cross validates the
+    performance of these distributions by asking them to produce samples and then passing them to some scoring function,
+    returns the distributions and cross validation scores to its parent
     """
-    def __init__(self, sub_expert_class, *args, **kwargs):
-        """
-        :type data: XSeqDataSet
-        """
-        super(CrossValidationExpert, self).__init__(*args, **kwargs)
+    def __init__(self, sub_expert_class, scoring_expert, n_folds=5, *args, **kwargs):
+        super(SamplesCrossValidationExpert, self).__init__(*args, **kwargs)
 
         self.sub_expert_class = sub_expert_class
         self.sub_expert = None
         self.data = None
+        self.scoring_expert = scoring_expert
         self.conditional_distributions = []
+
+        self.n_folds = n_folds
 
     def load_data(self, data):
         assert isinstance(data, XSeqDataSet)
         self.data = data
 
     def cross_validate(self):
-        # Quick hack - turn into XY data set for initial testing purposes
-        self.data = self.data.convert_to_XY()
         # Set up cross validation scheme
-        train_folds = KFold(self.data.X.shape[0], n_folds=5, indices=False)
+        train_folds = KFold(self.data.arrays['X'].shape[0], n_folds=self.n_folds, indices=False)
         self.data.set_cv_indices(train_folds)
-        # Calculate cross validated RMSE
-        RMSE_sum = None
-        var_explained_sum = None
+        # Calculate cross validated scores
+        scores = None
         fold_count = 0
 
-        for train_data, test_data in self.data.cv_subsets:
+        for (fold, (train_data, test_data)) in enumerate(self.data.cv_subsets):
             # print('CV')
             if self.termination_pending:
                 # print('Received termination call during CV')
@@ -212,36 +483,22 @@ class CrossValidationExpert(Agent):
             distributions = temp_expert.conditional_distributions
 
             fold_count += 1
-            if RMSE_sum is None:
-                RMSE_sum = np.zeros(len(distributions))
-                var_explained_sum = np.zeros(len(distributions))
+            if scores is None:
+                scores = np.zeros((self.n_folds, len(distributions)))
             for (i, distribution) in enumerate(distributions):
-                RMSE_sum[i] += np.sqrt(sklearn.metrics.mean_squared_error(test_data.y,
-                                                                          distribution.conditional_mean(test_data)))
-                var_explained_sum[i] += 100 * (1 - (sklearn.metrics.mean_squared_error(test_data.y,
-                                                                    distribution.conditional_mean(test_data)) /
-                                                    np.var(test_data.y)))
+                scores[fold, i] = self.scoring_expert.score(data=test_data, distribution=distribution)
+
         if not self.termination_pending:
 
-            # print('Full')
-
-            cv_RMSE = RMSE_sum / fold_count
-            cv_var_explained = var_explained_sum / fold_count
             # Train on full data
             self.sub_expert = self.sub_expert_class()
             self.sub_expert.load_data(self.data)
             self.sub_expert.fit()
+            distributions = self.sub_expert.conditional_distributions
             # Report results of cross validation
-            for (rmse_score, var_score, distribution) in zip(cv_RMSE, cv_var_explained,
-                                                             self.sub_expert.conditional_distributions):
-                # Modify noise levels of model if appropriate
-                if isinstance(distribution, SKLearnModelInputFilteredPlusGaussian) or \
-                   isinstance(distribution, SKLearnModelPlusGaussian):
-                    distribution.sd = rmse_score
-                self.outbox.append(dict(label='CV-RMSE', distribution=distribution, value=rmse_score,
-                                        var_explained=var_score, data=self.data))
-
-            # print('Full complete')
+            for (i, distribution) in enumerate(distributions):
+                self.outbox.append(dict(label='CV-samples', distribution=distribution, scores=scores[:, i],
+                                        scoring_expert=self.scoring_expert, data=self.data))
 
     def next_action(self):
         if not self.termination_pending:
@@ -289,8 +546,8 @@ class DataDoublingExpert(Agent):
         else:
             self.epoch += 1
             # Reduce data size if appropriate - if so this is the last run
-            if self.data_size >= self.data.X.shape[0]:
-                self.data_size = self.data.X.shape[0]
+            if self.data_size >= self.data.arrays['X'].shape[0]:
+                self.data_size = self.data.arrays['X'].shape[0]
                 self.terminate_next_run = True
             # Create a new expert and hook up communication
             sub_expert = self.sub_expert_class()
