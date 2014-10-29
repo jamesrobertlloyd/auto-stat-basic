@@ -101,11 +101,37 @@ class Manager(Agent):
         # TODO - revisit this heuristic for lengthscale selection - especially if data not continuous
         # scoring_expert = experts.MMDScorer(lengthscales=np.std(self.data.arrays['X'], 0))
         scoring_expert = experts.LLHScorer()
+        # self.experts = [experts.DataDoublingExpert(lambda:
+        #                                            experts.SamplesCrossValidationExpert(
+        #                                                experts.IndependentGaussianLearner,
+        #                                                scoring_expert)),
+        #                 experts.DataDoublingExpert(lambda:
+        #                                            experts.SamplesCrossValidationExpert(
+        #                                                experts.MoGLearner,
+        #                                                scoring_expert)),
+        #                 experts.DataDoublingExpert(lambda:
+        #                                            experts.SamplesCrossValidationExpert(
+        #                                                lambda:
+        #                                                experts.RegressionLearner(experts.IndependentGaussianLearner,
+        #                                                                          experts.SKLinearModel),
+        #                                                scoring_expert)),
+        #                 experts.DataDoublingExpert(lambda:
+        #                                            experts.SamplesCrossValidationExpert(
+        #                                                lambda:
+        #                                                experts.RegressionLearner(experts.IndependentGaussianLearner,
+        #                                                                          experts.SKLASSO),
+        #                                                scoring_expert)),
+        #                 experts.DataDoublingExpert(lambda:
+        #                                            experts.SamplesCrossValidationExpert(
+        #                                                lambda: experts.RegressionLearner(experts.MoGLearner,
+        #                                                                                  experts.SKLinearModel),
+        #                                                scoring_expert)),
+        #                 experts.DataDoublingExpert(lambda:
+        #                                            experts.SamplesCrossValidationExpert(
+        #                                                lambda: experts.RegressionLearner(experts.MoGLearner,
+        #                                                                                  experts.SKLASSO),
+        #                                                scoring_expert))]
         self.experts = [experts.DataDoublingExpert(lambda:
-                                                   experts.SamplesCrossValidationExpert(
-                                                       experts.IndependentGaussianLearner,
-                                                       scoring_expert)),
-                        experts.DataDoublingExpert(lambda:
                                                    experts.SamplesCrossValidationExpert(
                                                        experts.MoGLearner,
                                                        scoring_expert)),
@@ -114,22 +140,6 @@ class Manager(Agent):
                                                        lambda:
                                                        experts.RegressionLearner(experts.IndependentGaussianLearner,
                                                                                  experts.SKLinearModel),
-                                                       scoring_expert)),
-                        experts.DataDoublingExpert(lambda:
-                                                   experts.SamplesCrossValidationExpert(
-                                                       lambda:
-                                                       experts.RegressionLearner(experts.IndependentGaussianLearner,
-                                                                                 experts.SKLASSO),
-                                                       scoring_expert)),
-                        experts.DataDoublingExpert(lambda:
-                                                   experts.SamplesCrossValidationExpert(
-                                                       lambda: experts.RegressionLearner(experts.MoGLearner,
-                                                                                         experts.SKLinearModel),
-                                                       scoring_expert)),
-                        experts.DataDoublingExpert(lambda:
-                                                   experts.SamplesCrossValidationExpert(
-                                                       lambda: experts.RegressionLearner(experts.MoGLearner,
-                                                                                         experts.SKLASSO),
                                                        scoring_expert))]
         # Load data into experts and set name
         for (i, expert) in enumerate(self.experts):
@@ -220,8 +230,8 @@ def main():
     data = XSeqDataSet()
     # data.load_from_file('../data/test-lin/simple-09.csv')
     # data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
-    # data.load_from_file('../data/test-lin/iris-simple.csv')
-    data.load_from_file('../data/test-lin/stovesmoke-no-outliers.csv')
+    data.load_from_file('../data/test-lin/iris-simple.csv')
+    # data.load_from_file('../data/test-lin/stovesmoke-no-outliers.csv')
     # Setup up manager and communication
     queue_to_manager = multi_q()
     queue_to_main = multi_q()
