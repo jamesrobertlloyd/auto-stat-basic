@@ -35,7 +35,6 @@ import time
 import sys
 import select
 
-from signal import signal, SIGPIPE, SIG_DFL
 
 # import util
 from data import XSeqDataSet
@@ -219,8 +218,6 @@ class Manager(Agent):
 
 
 def main():
-    # Something to do with pipes that I don't understand
-    signal(SIGPIPE, SIG_DFL)  # http://newbebweb.blogspot.co.uk/2012/02/python-head-ioerror-errno-32-broken.html
     # Setup
     print('\nPress enter to terminate at any time.\n')
     seed = 1
@@ -256,10 +253,10 @@ def main():
         if i:
             print('\n\nTerminating')
             sys.stdin.readline() # Read whatever was typed to stdin
-            queue_to_manager.put(dict(label='terminate'))
-        else:
-            time.sleep(0.1)
-    p.join()
+            if p.is_alive(): # avoid sending messages to dead processes
+                queue_to_manager.put(dict(label='terminate',sentby='main'))
+                p.join()
+            break
 
 
 if __name__ == "__main__":

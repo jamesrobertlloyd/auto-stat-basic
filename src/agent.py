@@ -70,16 +70,15 @@ class Agent(object):
     def terminate_children(self):
         # Send message to all children to terminate
         # print('%s Telling children to terminate' % self)
-        for q in self.queues_to_children:
-            q.put(dict(label='terminate'))
+        for q,p in zip(self.queues_to_children,self.child_processes):
+            if p.is_alive():
+                q.put(dict(label='terminate',sentby=str(self))) # sentby is debug code
         # Attempt to join all child processes
         # print('%s Attempting to join children' % self)
         for p in self.child_processes:
             p.join(timeout=self.child_timeout)
-        # Terminate any stragglers
-        # print('%s Forcing their death' % self)
-        for p in self.child_processes:
-            if hasattr(p, 'terminate'):  # Only processes can be terminated, not threads currently
+            if p.is_alive() and hasattr(p, 'terminate'):  
+                # Only processes can be terminated, not threads currently
                 p.terminate()
         # print('%s Death executed' % self)
 
