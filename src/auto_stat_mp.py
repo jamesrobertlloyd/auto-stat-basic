@@ -160,7 +160,7 @@ class Manager(Agent):
     def wait_for_experts(self):
         time.sleep(0.1)
         self.updated = False
-        while not self.termination_pending:
+        while True:
             try:
                 self.all_dist_msgs.append(self.expert_queue.get_nowait())
                 self.updated = True
@@ -202,6 +202,17 @@ class Manager(Agent):
             for message in self.up_to_date_dist_msgs:
                 report += str(message) + '\n'
             self.outbox.append(report)
+        self.state = 'check for life'
+
+    def check_life(self):
+        self.terminated = True
+        for child in self.child_processes:
+            if child.is_alive():
+                self.terminated = False
+                break
+        if self.terminated == True:
+            self.wait_for_experts() # get final messages from pipe
+            self.produce_report()
         self.state = 'wait for experts'
 
     def next_action(self):
@@ -209,6 +220,8 @@ class Manager(Agent):
             if self.state == 'init':
                 if not self.data is None:
                     self.init_data_and_experts()
+            elif self.state == 'check for life':
+                self.check_life()
             elif self.state == 'wait for experts':
                 self.wait_for_experts()
             elif self.state == 'produce report':
@@ -240,23 +253,30 @@ def main():
     # Delete the local version of the manager to avoid confusion
     del manager
     # Listen to the manager until it finishes or crashes or user types input
-    while True:
-        if not p.is_alive():
-            break
+    try:
+        while True:
+            if not p.is_alive():
+                break
+            while True:
+                try:
+                    print(queue_to_main.get_nowait())
+                except q_Empty:
+                    break
+        # Wait for one second to see if any keyboard input
+            i, o, e = select.select([sys.stdin], [], [], 1)
+            if i:
+                print('\n\nTerminating')
+                sys.stdin.readline() # Read whatever was typed to stdin
+                if p.is_alive(): # avoid sending messages to dead processes
+                    queue_to_manager.put(dict(label='terminate',sentby='main'))
+                    p.join()
+                break
+    finally:
         while True:
             try:
                 print(queue_to_main.get_nowait())
             except q_Empty:
                 break
-        # Wait for one second to see if any keyboard input
-        i, o, e = select.select([sys.stdin], [], [], 1)
-        if i:
-            print('\n\nTerminating')
-            sys.stdin.readline() # Read whatever was typed to stdin
-            if p.is_alive(): # avoid sending messages to dead processes
-                queue_to_manager.put(dict(label='terminate',sentby='main'))
-                p.join()
-            break
 
 
 if __name__ == "__main__":
