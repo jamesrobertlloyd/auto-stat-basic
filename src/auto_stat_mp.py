@@ -22,9 +22,7 @@ from threading import Thread
 from multiprocessing import Queue as multi_q
 from Queue import Empty as q_Empty
 
-# from scipy import stats
-# import numpy as np
-from numpy import floor
+import numpy as np
 from numpy.random import seed as np_rand_seed
 import random
 # import subprocess
@@ -41,6 +39,7 @@ from data import XSeqDataSet
 from agent import Agent, start_communication
 import experts
 import latex_util
+import make_graphs as gr
 
 #### TODO
 #### - Nonparametric density estimate, (these are nice to haves - FA, Linear DAG)
@@ -60,6 +59,8 @@ class Manager(Agent):
         super(Manager, self).__init__(*args, **kwargs)
 
         self.data = None
+        self.test_indices = None
+        self.train_indices = None
         self.expert_queue = multi_q()
         self.criticism_queue = multi_q()
 
@@ -69,23 +70,47 @@ class Manager(Agent):
         self.updated = False
 
         self.state = 'init'
+        self.latex_dir = './pdf-template' # template for report
+        self.temp_dir = None # directory for output
 
     def load_data(self, data):
         assert isinstance(data, XSeqDataSet)
         self.data = data
 
     def init_data_and_experts(self):
-        # Write placeholder report
-        self.outbox.append(dict(label='report', text='Your report is being prepared', tex=latex_util.waiting_tex()))
+        # Preparing report things
+        self.templatefl = "pdf_template.jinja"
+        self.template = latex_util.get_latex_template(self.templatefl)
+        summary = [{} for x in range(self.data.arrays['X'].shape[1])]
+        for i in range(self.data.arrays['X'].shape[1]):
+            summary[i]['label'] = self.data.labels['X'][i]
+            summary[i]['min'] = np.min(self.data.arrays['X'][:,i])
+            summary[i]['med'] = np.median(self.data.arrays['X'][:,i])
+            summary[i]['max'] = np.max(self.data.arrays['X'][:,i])
+        self.templateVars = {"data_name" : self.data.name,
+                             "n_inputs" : self.data.arrays['X'].shape[1],
+                             "n_rows" : self.data.arrays['X'].shape[0],
+                             "summary" : summary
+                             }
+        self.temp_dir = latex_util.initialise_tex(self.latex_dir)
+        latex_util.update_tex(self.temp_dir, self.template.render({
+                    'title' : 'Your report is being prepared',
+                    'body' : 'This usually takes a couple of minutes - at most ten minutes.'}))
+
+        # Write placeholder message
+        self.outbox.append(dict(label='report', 
+                                text='Your report is being prepared', 
+                                loc=self.temp_dir))
+
         # Partition data in train / test
         n_data = self.data.arrays['X'].shape[0]
         random_perm = range(n_data)
         random.shuffle(random_perm)
         proportion_train = 0.5
-        train_indices = random_perm[:int(floor(n_data * proportion_train))]
-        test_indices = random_perm[int(floor(n_data * proportion_train)):]
-        data_sets = self.data.subsets([train_indices, test_indices])
-        train_data = data_sets[0]
+        self.train_indices = random_perm[:int(np.floor(n_data * proportion_train))]
+        self.test_indices = random_perm[int(np.floor(n_data * proportion_train)):]
+        train_data, test_data = self.data.subsets([self.train_indices, self.test_indices])
+
         # test_data = data_sets[1]
         # Initialise list of experts
         # self.experts = [DummyModel(number=5, max_actions=10),
@@ -168,40 +193,53 @@ class Manager(Agent):
                 break
         self.state = 'produce report'
 
-    def strip_old_epoch_distributions(self):
-        """Produce a list of candidate models from their latest epochs"""
-        # FIXME - this function should not exist, I should choose models based on expected utility - this is how I
-        # FIXME - should guard against low data (and therefore high variance) results appearing better than they are
-        # Produce a list of all sender names
-        senders = []
-        for message in self.all_dist_msgs:
-            if not message['sender'] in senders:
-                senders.append(message['sender'])
-        # Now find the max epochs for each sender
-        max_epochs = [0] * len(senders)
-        for (i, sender) in enumerate(senders):
-            for message in self.all_dist_msgs:
-                if message['sender'] == sender:
-                    if message['epoch'] > max_epochs[i]:
-                        max_epochs[i] = message['epoch']
-        # Now filter the distribution messages
-        self.up_to_date_dist_msgs = []
-        for message in self.all_dist_msgs:
-            keep_message = False
-            for (sender, max_epoch) in zip(senders, max_epochs):
-                if (message['sender'] == sender) and \
-                   (message['epoch'] == max_epoch):
-                    keep_message = True
-            if keep_message:
-                self.up_to_date_dist_msgs.append(message)
 
     def produce_report(self):
         if self.updated:
-            report = '\n'
-            self.strip_old_epoch_distributions()
-            for message in self.up_to_date_dist_msgs:
-                report += str(message) + '\n'
-            self.outbox.append(report)
+            senders = set([message['sender'] for message in self.all_dist_msgs])
+            maxscores = {x:-np.inf for x in senders}
+            maxscore = -np.inf
+            topdists = {x:None for x in senders} # highest score for each sender
+            shortdescs = {x:None for x in senders}
+
+            xs = {x:[] for x in senders}
+            ys = {x:[] for x in senders}
+            xarr = {x:[] for x in senders}
+            for message in self.all_dist_msgs:
+                sender = message['sender']
+                distribution = message['distribution']
+                if distribution.avscore > maxscores[sender]:
+                    topdists[sender] = distribution
+                    shortdescs[sender] = distribution.shortdescrip
+                    maxscores[sender] = distribution.avscore
+                    if distribution.avscore > maxscore:
+                        topsender = sender # highest overall score
+                        maxscore = distribution.avscore
+                xs[sender].append(distribution.data_size)
+                ys[sender].append(distribution.avscore)
+                xarr[sender].append(sorted(distribution.scores))
+            #print self.all_dist_msgs[-1]
+            topdist = topdists[topsender]
+
+            # make graphs
+            topdist.make_graphs(self.data.subsets([self.train_indices, self.test_indices])[0],
+                                self.temp_dir)
+            if len(self.all_dist_msgs) / float(len(topdists)) > 1:
+                gr.learning_curve(xs, xarr, shortdescs, self.temp_dir) # make the learning curve
+
+
+            self.templateVars.update({'messages' : self.all_dist_msgs,
+                                      'topdists' : topdists.values(),
+                                      'topdist' : topdist,
+                                      'outdir' : self.temp_dir})
+
+            latex_util.update_tex(self.temp_dir, self.template.render(self.templateVars))
+
+            self.outbox.append({'label' : 'report', 
+                                'text' : 'Your report has been updated', 
+                                'loc' : self.temp_dir
+                                })
+            
         self.state = 'check for life'
 
     def check_life(self):
@@ -240,7 +278,7 @@ def main():
     data = XSeqDataSet()
     # data.load_from_file('../data/test-lin/simple-09.csv')
     # data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
-    data.load_from_file('../data/test-lin/iris-simple.csv')
+    data.load_from_file('../data/test-lin/iris_labels.csv')
     # data.load_from_file('../data/test-lin/stovesmoke-no-outliers.csv')
     # Setup up manager and communication
     queue_to_manager = multi_q()
@@ -253,30 +291,31 @@ def main():
     # Delete the local version of the manager to avoid confusion
     del manager
     # Listen to the manager until it finishes or crashes or user types input
-    try:
-        while True:
-            if not p.is_alive():
-                break
-            while True:
-                try:
-                    print(queue_to_main.get_nowait())
-                except q_Empty:
-                    break
-        # Wait for one second to see if any keyboard input
-            i, o, e = select.select([sys.stdin], [], [], 1)
-            if i:
-                print('\n\nTerminating')
-                sys.stdin.readline() # Read whatever was typed to stdin
-                if p.is_alive(): # avoid sending messages to dead processes
-                    queue_to_manager.put(dict(label='terminate',sentby='main'))
-                    p.join()
-                break
-    finally:
+    while True:
+        if not p.is_alive():
+            break
         while True:
             try:
-                print(queue_to_main.get_nowait())
+                comms = queue_to_main.get_nowait()
+                if comms['label'] == 'report':
+                    report_loc = comms['loc']
+                    print comms['text']
             except q_Empty:
                 break
+        # Wait for one second to see if any keyboard input
+        i, o, e = select.select([sys.stdin], [], [], 1)
+        if i:
+            print('\n\nTerminating')
+            sys.stdin.readline() # Read whatever was typed to stdin
+            if p.is_alive(): # avoid sending messages to dead processes
+                queue_to_manager.put(dict(label='terminate',sentby='main'))
+                p.join()
+            break
+
+    print 'Report is complete'
+    latex_util.compile_tex(report_loc)
+    print "Report is here :" + report_loc
+
 
 
 if __name__ == "__main__":

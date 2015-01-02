@@ -1,0 +1,280 @@
+
+\documentclass{article} %% For LaTeX2e
+\usepackage{format/nips13submit_e}
+\nipsfinalcopy %% Uncomment for camera-ready version
+\usepackage{times}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{color}
+\definecolor{mydarkblue}{rgb}{0,0.08,0.45}
+\hypersetup{
+    pdfpagemode=UseNone,
+    colorlinks=true,
+    linkcolor=mydarkblue,
+    citecolor=mydarkblue,
+    filecolor=mydarkblue,
+    urlcolor=mydarkblue,
+    pdfview=FitH}
+
+\usepackage{graphicx, amsmath, amsfonts, bm, lipsum, capt-of}
+
+\usepackage{natbib, xcolor, wrapfig, booktabs, multirow, caption}
+
+\usepackage{float}
+
+\def\ie{i.e.\ }
+\def\eg{e.g.\ }
+
+\newcommand{\home}{((( outdir )))}
+
+\title{((* if title is defined *)) ((( title ))) ((* else *)) An automatic report for the dataset ((( data_name|escape_tex ))) ((* endif *))}
+
+\author{
+(A very basic version of) The Automatic Statistician
+}
+
+\newcommand{\fix}{\marginpar{FIX}}
+\newcommand{\new}{\marginpar{NEW}}
+
+\setlength{\marginparwidth}{0.9in}
+\input{include/commenting.tex}
+
+%%%% For submission, make all render blank.
+%%\\renewcommand{\LATER}[1]{}
+%%\\renewcommand{\\fLATER}[1]{}
+%%\\renewcommand{\TBD}[1]{}
+%%\\renewcommand{\\fTBD}[1]{}
+%%\\renewcommand{\PROBLEM}[1]{}
+%%\\renewcommand{\\fPROBLEM}[1]{}
+%%\\renewcommand{\NA}[1]{#1}  %% Note, NA's pass through!
+
+\begin{document}
+
+\allowdisplaybreaks
+
+\maketitle
+
+((* if body is defined *)) ((= 'body' is defined for error and server busy reports =))
+((( body )))
+\end{document}
+
+((* else *))
+
+\begin{abstract}
+This is a report analysing the dataset ((( data_name|escape_tex ))).
+I have compared ((( topdists|length ))) simple strategies for modelling data, using 5-fold cross validation on half of the data.
+The strategy with the highest cross-validated log predictive density has then been used to train a model on the same half of data.
+This model is then described, displaying the most influential components first.
+Model criticism techniques have then been applied to attempt to find discrepancies between the model and data.
+\end{abstract}
+
+\section{Brief description of data set}
+
+To confirm that I have interpreted the data correctly a short summary of the data set follows.
+There are ((( n_inputs ))) input columns and ((( n_rows ))) rows of data.
+A summary of these variables is given in table \ref{table:description}.
+
+\begin{table}[H]
+\begin{center}
+\begin{tabular}{|l|rrr|}
+\hline
+ Name & Minimum & Median & Maximum \\
+\hline
+((* for item in summary *))
+((( item.label ))) & ((( '%.2g' % item.min ))) & ((( '%.2g' % item.med ))) & ((( '%.2g' % item.max|round(2) ))) \\
+((* endfor *))
+\hline
+\end{tabular}
+\end{center}
+\caption{Summary statistics of data}
+\label{table:description}
+\end{table}
+
+\section{Summary of model construction}
+
+I have compared a number of different model construction techniques by computing cross-validated log predictive density.
+These figures are summarised in table \ref{table:cv-summary}.
+
+\begin{table}[H]
+\begin{center}
+\begin{tabular}{|l|r|}
+\hline
+Method & Cross-validated log predictive density \\
+\hline
+((* for dist in topdists *))
+((( dist.shortdescrip ))) & ((( '%.2g' % dist.avscore ))) \\
+((* endfor *))
+\hline
+\end{tabular}
+\end{center}
+\caption{Summary of model construction methods and cross-validated errors}
+\label{table:cv-summary}
+\end{table}
+
+((* if messages|length / topdists|length|float > 1 *)) ((= i.e. if some data doubling has happened =))
+The models were trained on increasing amounts of data. Here is the learning curve:
+\begin{figure}[H]
+\newcommand{\mdrd}{\home/figures}
+\begin{center}
+\includegraphics[width=0.75\textwidth]{\mdrd/learning_curve.png}
+\end{center}
+\end{figure}
+((* endif *))
+
+The ((( topdist.shortdescrip ))) method has the highest cross-validated log predictive density so I have used this method to train a model on half of the data.
+In the rest of this report I have described this model and have attempted to falsify it using held out test data.
+
+
+\section{Model description}                        
+
+
+In this section I have described the model I have constructed to explain the data.
+A quick summary is below, followed by quantification of the model with accompanying plots of model fit and residuals.
+
+((* if topdist.shortdescrip == 'Linear Model' *))
+
+\subsection{Summary}
+
+The output ((( summary[topdist.output_index].label ))) (column ((( topdist.output_index + 1 )))):
+\begin{itemize}
+((* for i in topdist.input_indices *))
+\item
+((* if topdist.output_distribution.model.coef_[loop.index0] > 0 *))
+increases
+((* else *))
+decreases
+((* endif *)) linearly with input ((( summary[i].label ))) (column ((( i + 1 )))) 
+((* endfor *))
+\end{itemize}
+
+Here is a graphical representation:
+\begin{figure}[H]
+\newcommand{\mdrd}{\home/figures}
+\begin{center}
+\includegraphics[width=0.5\textwidth]{\mdrd/pgm_graph.png}
+\end{center}
+\end{figure}
+
+\subsection{Detailed plots}
+
+((* for i in topdist.input_indices *))
+
+\paragraph{((* if topdist.output_distribution.model.coef_[loop.index0] > 0 *)) 
+Increase 
+((* else *)) 
+Decrease
+((* endif *)) with ((( summary[i].label )))}
+The correlation between the data and the input ((( summary[i].label ))) is ((( '%.2g' % topdist.output_distribution.corr[loop.index0] ))) (see figure \ref{fig:train_((( summary[i].label )))}a).
+
+((* if (topdist.output_distribution.partcorr[loop.index0] - topdist.output_distribution.corr[loop.index0])|abs > 0.3 *))
+Accounting for the rest of the model, this changes substantially to a part correlation of ((( '%.2g' % topdist.output_distribution.partcorr[loop.index0] ))) (see figure \ref{fig:train_((( summary[i].label )))}b).
+((* elif (topdist.output_distribution.partcorr[loop.index0] - topdist.output_distribution.corr[loop.index0])|abs > 0.1 *))
+Accounting for the rest of the model, this changes moderately to a part correlation of ((( '%.2g' % topdist.output_distribution.partcorr[loop.index0] ))) (see figure \ref{fig:train_((( summary[i].label )))}b).
+((* elif (topdist.output_distribution.partcorr[loop.index0] - topdist.output_distribution.corr[loop.index0])|abs > 0.01 *))
+Accounting for the rest of the model, this changes slightly to a part correlation of ((( '%.2g' % topdist.output_distribution.partcorr[loop.index0] ))) (see figure \ref{fig:train_((( summary[i].label )))}b).
+((* else *))
+This correlation does not change when accounting for the rest of the model (see figure \ref{fig:train_((( summary[i].label )))}b).
+((* endif *))
+
+
+\begin{figure}[H]
+\newcommand{\wmgd}{0.3\columnwidth}
+\newcommand{\mdrd}{\home/figures}
+\newcommand{\mbm}{\hspace{-0.3cm}}
+\begin{center}
+\begin{tabular}{ccc}
+\mbm
+\includegraphics[width=\wmgd]{\mdrd/scatter_graph_(((loop.index0))).png} &
+\includegraphics[width=\wmgd ]{\mdrd/reduced_graph_(((loop.index0))).png} &
+\includegraphics[width=\wmgd ]{\mdrd/residuals_graph_(((loop.index0))).png} \\
+a) & b) & c)
+\end{tabular}
+\end{center}
+\caption{
+a) Training data plotted against input ((( summary[i].label ))).
+b) Partial residuals (data minus the rest of the model) and fit of this component.
+c) Residuals (data minus the full model).}
+\label{fig:train_((( summary[i].label )))}
+\end{figure}
+Also here's a graph of how I modelled this input:
+\begin{figure}[H]
+\newcommand{\mdrd}{\home/figures}
+\begin{center}
+\includegraphics[width=0.5\textwidth]{\mdrd/histo_graph_(((loop.index0))).png}
+\end{center}
+\end{figure}
+
+((* endfor *))
+
+
+\section{Model criticism}
+%Model is awesome and has no flaws.
+
+
+((* elif topdist.shortdescrip == 'Mixture of Gaussians' *)) ((= MoG section =))
+\subsection{Summary}
+
+The data has ((( topdist.means|length ))) clusters. 
+
+
+\begin{table}[H]
+\begin{center}
+\begin{tabular}{|l|r|}
+\hline
+Cluster number & Size \\
+\hline
+((* for item in topdist.clustersizes *))
+((( item ))) & ((( topdist.clustersizes[item] ))) \\
+((* endfor *))
+\hline
+\end{tabular}
+\end{center}
+\caption{Summary of cluster sizes}
+\end{table}
+
+
+\subsection{Detailed plots}
+\begin{figure}[H]
+\newcommand{\mdrd}{\home/figures}
+\begin{center}
+\includegraphics[width=\textwidth]{\mdrd/scatter_matrix.png}
+\end{center}
+\end{figure}
+
+Cluster projection with LDA
+\begin{figure}[H]
+\newcommand{\mdrd}{\home/figures}
+\begin{center}
+\includegraphics[width=\textwidth]{\mdrd/lda_scatter.png}
+\end{center}
+\end{figure}
+
+((* if n_inputs > 2 *))
+Three best projections with JS divergence:
+
+\begin{figure}[H]
+\newcommand{\wmgd}{0.3\columnwidth}
+\newcommand{\mdrd}{\home/figures}
+\newcommand{\mbm}{\hspace{-0.3cm}}
+\begin{center}
+\begin{tabular}{ccc}
+\mbm
+\includegraphics[width=\wmgd]{\mdrd/js_scatter0.png} &
+\includegraphics[width=\wmgd ]{\mdrd/js_scatter1.png} &
+\includegraphics[width=\wmgd ]{\mdrd/js_scatter2.png} \\
+a) & b) & c)
+\end{tabular}
+\end{center}
+\end{figure}
+((* endif *))
+
+\section{Model criticism}
+%Model is awesome and has no flaws.
+
+((* else *))
+Description not implemented!
+((* endif *))
+
+
+\end{document}
+((* endif *))

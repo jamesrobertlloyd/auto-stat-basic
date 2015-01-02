@@ -28,6 +28,11 @@ import time
 from agent import Agent, start_communication
 from data import XSeqDataSet, XYDataSet
 import util
+from collections import Counter
+
+
+import make_graphs as gr
+import js_div as js
 
 ##############################################
 #                                            #
@@ -43,6 +48,7 @@ class Independent1dGaussians(object):
     def __init__(self, means, stds):
         self.means = means
         self.stds = stds
+        self.shortdescrip = "Independent 1D gaussians"
 
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
@@ -56,6 +62,8 @@ class Independent1dGaussians(object):
             llh += np.sum(stats.norm.logpdf(data.arrays['X'][:, j], loc=self.means[j], scale=self.stds[j]))
         return llh
 
+    def make_graphs(self, train_data, outdir):
+        gr.histogram(train_data, self.means, self.stds, outdir)
 
 class Independent1dUniforms(object):
     # TODO - This should derive from 1d objects and an appropriate DAG
@@ -64,6 +72,7 @@ class Independent1dUniforms(object):
     def __init__(self, lefts, rights):
         self.lefts = lefts
         self.rights = rights
+        self.shortdescrip = "Independent uniforms"
 
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
@@ -87,12 +96,14 @@ class Independent1dUniforms(object):
 class MoG(object):
     """Mixture of Gaussians"""
 
-    def __init__(self, weights, means, stds, sklearn_mog=None):
+    def __init__(self, weights, means, stds, sklearn_mog):
         # print weights.size
         self.weights = weights
         self.means = means
         self.stds = stds
         self.sklearn_mog = sklearn_mog
+        self.shortdescrip = "Mixture of Gaussians"
+        self.clustersizes = {}
 
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
@@ -108,6 +119,19 @@ class MoG(object):
     def llh(self, data):
         return np.sum(self.sklearn_mog.score(data.arrays['X']))
 
+    def make_graphs(self, train_data, outdir):
+        #print self.sklearn_mog.weights_
+        #print self.sklearn_mog.means_
+        #print self.sklearn_mog.covars_
+        labels = np.array([self.sklearn_mog.predict(train_data.arrays['X'])])
+        gr.scatterplot_matrix(train_data.arrays['X'],labels.T,train_data.labels['X'],outdir,
+                              self.sklearn_mog.means_, self.sklearn_mog.covars_, self.sklearn_mog.weights_)
+        gr.lda_graph(train_data.arrays['X'],labels.ravel(),outdir,
+                     self.sklearn_mog.means_, self.sklearn_mog.covars_)
+
+        js.js_graphs(self.sklearn_mog.means_,self.sklearn_mog.covars_,self.sklearn_mog.weights_,
+                     outdir,train_data.arrays['X'],labels.ravel(),train_data.labels['X'] )
+
 
 class SKLearnModelPlusGaussian(object):
     """Conditional distribution based on sklearn model with iid Gaussian noise"""
@@ -115,6 +139,7 @@ class SKLearnModelPlusGaussian(object):
     def __init__(self, model, sd):
         self.model = model
         self.sd = sd
+        self.shortdescrip = "Least squares regression"
 
     def conditional_mean(self, data):
         return self.model.predict(data.arrays['X']).ravel()
@@ -127,24 +152,38 @@ class SKLearnModelPlusGaussian(object):
         llh = np.sum(stats.norm.logpdf(data_minus_mean, loc=0, scale=self.sd))
         return llh
 
+    def make_graphs(self, train_data, outdir):
+        XY_data = train_data
+        residuals = np.subtract(XY_data.arrays['Y'], 
+                                np.add(np.sum(self.model.coef_ * XY_data.arrays['X'], axis=1).reshape((-1,1)),
+                                       np.ones((XY_data.arrays['Y'].shape[0],1)) * self.model.intercept_)
+                                )
+        self.corr = []
+        self.partcorr = []
+
+        for i in range(len(XY_data.labels['X'])):
+            reduced = np.add(residuals, self.model.coef_[i] * XY_data.arrays['X'][:,[i]])
+            self.corr.append(stats.pearsonr(XY_data.arrays['X'][:,[i]],XY_data.arrays['Y'])[0])
+            self.partcorr.append(stats.pearsonr(XY_data.arrays['X'][:,[i]],reduced)[0])
+            
+            gr.reg_graphs(XY_data, i, residuals, reduced, outdir)
 
 class RegressionDAG(object):
     """Output caused by inputs"""
 
-    def __init__(self, output_index, input_distribution, output_distribution):
+    def __init__(self, output_index, input_indices, input_distribution, output_distribution):
         # print weights.size
         self.output_index = output_index
+        self.input_indices = input_indices
         self.input_distribution = input_distribution
         self.output_distribution = output_distribution
+        self.shortdescrip = "Linear Model"
 
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
         sample = np.zeros(data.arrays['X'].shape)
 
-        input_indices = list(range(self.output_index)) + \
-                        list(range(self.output_index + 1, data.arrays['X'].shape[1], 1))
-
-        inputs = data.variable_subsets(input_indices)
+        inputs = data.variable_subsets(self.input_indices)
         outputs = data.variable_subsets([self.output_index])
 
         X_data = inputs
@@ -159,7 +198,7 @@ class RegressionDAG(object):
         XY_data.arrays['X'] = X_sample
         Y_sample = self.output_distribution.conditional_samples(XY_data)
 
-        sample[:, input_indices] = X_sample
+        sample[:, self.input_indices] = X_sample
         sample[:, self.output_index] = Y_sample
         return sample
 
@@ -167,10 +206,7 @@ class RegressionDAG(object):
         assert isinstance(data, XSeqDataSet)
         sample = np.zeros(data.arrays['X'].shape)
 
-        input_indices = list(range(self.output_index)) + \
-                        list(range(self.output_index + 1, data.arrays['X'].shape[1], 1))
-
-        inputs = data.variable_subsets(input_indices)
+        inputs = data.variable_subsets(self.input_indices)
         outputs = data.variable_subsets([self.output_index])
 
         X_data = inputs
@@ -184,6 +220,22 @@ class RegressionDAG(object):
         llh = self.input_distribution.llh(X_data)
         llh += self.output_distribution.llh(XY_data)
         return llh
+
+    def make_graphs(self, train_data, outdir):
+        inputs = train_data.variable_subsets(self.input_indices)
+        outputs = train_data.variable_subsets([self.output_index])
+
+        XY_data = XYDataSet()
+        XY_data.labels['X'] = inputs.labels['X']
+        XY_data.labels['Y'] = outputs.labels['X']
+        XY_data.arrays['X'] = inputs.arrays['X']
+        XY_data.arrays['Y'] = outputs.arrays['X']
+
+        self.input_distribution.make_graphs(XY_data,outdir)
+        self.output_distribution.make_graphs(XY_data,outdir)
+
+        gr.dag(XY_data.labels['X'], XY_data.labels['Y'][0],
+               outdir)
 
 ##############################################
 #                                            #
@@ -325,6 +377,9 @@ class MoGLearner(Agent):
         # stds = np.sqrt(1 / best_model.precs_)
         stds = np.sqrt(best_model.covars_)
         self.conditional_distributions = [MoG(weights=weights, means=means, stds=stds, sklearn_mog=best_model)]
+        self.conditional_distributions[0].clustersizes = Counter(
+            self.conditional_distributions[0].sklearn_mog.predict(self.data.arrays['X']))
+        self.conditional_distributions[0].data_size = self.data.arrays['X'].shape[0]
 
     @staticmethod
     def generate_descriptions():
@@ -352,6 +407,7 @@ class SKLearnModelLearner(Agent):
         y_hat = self.model.predict(self.data.arrays['X'])
         sd = np.sqrt((sklearn.metrics.mean_squared_error(self.data.arrays['Y'], y_hat)))
         self.conditional_distributions = [SKLearnModelPlusGaussian(self.model, sd)]
+        self.conditional_distributions[0].data_size = self.data.arrays['X'].shape[0]
 
     @staticmethod
     def generate_descriptions(self):
@@ -396,12 +452,11 @@ class RegressionLearner(Agent):
     def fit(self):
         best_llh = -np.Inf
         best_distribution = None
-        # best_index = None
 
-        for input_var in range(self.data.arrays['X'].shape[1]):
-            inputs = self.data.variable_subsets(list(range(input_var)) +
-                                                list(range(input_var + 1, self.data.arrays['X'].shape[1], 1)))
-            outputs = self.data.variable_subsets([input_var])
+        for output_index in range(self.data.arrays['X'].shape[1]):
+            input_indices = [x for x in range(self.data.arrays['X'].shape[1]) if x != output_index]
+            inputs = self.data.variable_subsets(input_indices)
+            outputs = self.data.variable_subsets([output_index])
             input_agent = self.input_learner()
 
             input_agent.load_data(inputs)
@@ -417,16 +472,15 @@ class RegressionLearner(Agent):
             output_agent.load_data(XY_data)
             output_agent.fit()
 
-            conditional_distribution = RegressionDAG(input_var, input_agent.conditional_distributions[0],
-                                                                output_agent.conditional_distributions[0])
+            conditional_distribution = RegressionDAG(output_index, input_indices,
+                                                     input_agent.conditional_distributions[0],
+                                                     output_agent.conditional_distributions[0])
 
             score = LLHScorer.score(self.data, conditional_distribution)
             if score > best_llh:
                 best_llh = score
                 best_distribution = conditional_distribution
-                # best_index = input_var
-
-        # print best_index
+                best_distribution.data_size = self.data.arrays['X'].shape[0]
 
         self.conditional_distributions = [best_distribution]
 
@@ -470,7 +524,6 @@ class SamplesCrossValidationExpert(Agent):
         self.data.set_cv_indices(train_folds)
         # Calculate cross validated scores
         scores = None
-        fold_count = 0
 
         for (fold, (train_data, test_data)) in enumerate(self.data.cv_subsets):
             # print('CV')
@@ -482,7 +535,6 @@ class SamplesCrossValidationExpert(Agent):
             temp_expert.fit()
             distributions = temp_expert.conditional_distributions
 
-            fold_count += 1
             if scores is None:
                 scores = np.zeros((self.n_folds, len(distributions)))
             for (i, distribution) in enumerate(distributions):
@@ -497,8 +549,10 @@ class SamplesCrossValidationExpert(Agent):
             distributions = self.sub_expert.conditional_distributions
             # Report results of cross validation
             for (i, distribution) in enumerate(distributions):
-                self.outbox.append(dict(label='CV-samples', distribution=distribution, scores=scores[:, i],
-                                        scoring_expert=self.scoring_expert, data=self.data))
+                distribution.scores = scores[:, i]
+                distribution.avscore = np.median(scores[:, i])
+                self.outbox.append({'distribution' : distribution,
+                                    'scoring_expert' : self.scoring_expert})
 
     def next_action(self):
         if not self.termination_pending:
@@ -575,7 +629,6 @@ class DataDoublingExpert(Agent):
             try:
                 message = self.expert_queue.get_nowait()
                 # Message received, add some additional details
-                message['epoch'] = self.epoch
                 message['sender'] = self.name
                 self.outbox.append(message)
             except q_Empty:
