@@ -26,7 +26,6 @@ import numpy as np
 from numpy.random import seed as np_rand_seed
 import random
 # import subprocess
-import time
 # import os
 # import shutil
 # import re
@@ -183,7 +182,6 @@ class Manager(Agent):
         self.state = 'wait for experts'
 
     def wait_for_experts(self):
-        time.sleep(0.1)
         self.updated = False
         while True:
             try:

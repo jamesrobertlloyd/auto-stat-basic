@@ -23,7 +23,6 @@ from threading import Thread
 from multiprocessing import Queue as multi_q
 from Queue import Empty as q_Empty
 
-import time
 
 from agent import Agent, start_communication
 from data import XSeqDataSet, XYDataSet
@@ -288,14 +287,12 @@ class DistributionModel(object):
         self.conditional_distributions = [dist]
 
 
-class IndependentGaussianLearner(Agent):
+class IndependentGaussianLearner(object):
     """
     Fits independent Gaussians to data
     """
 
-    def __init__(self, *args, **kwargs):
-        super(IndependentGaussianLearner, self).__init__(*args, **kwargs)
-
+    def __init__(self):
         self.data = None
         self.conditional_distributions = []
 
@@ -315,14 +312,12 @@ class IndependentGaussianLearner(Agent):
         raise RuntimeError('Description not implemented')
 
 
-class IndependentUniformLearner(Agent):
+class IndependentUniformLearner(object):
     """
     Fits independent uniforms to data
     """
 
-    def __init__(self, *args, **kwargs):
-        super(IndependentUniformLearner, self).__init__(*args, **kwargs)
-
+    def __init__(self):
         self.data = None
         self.conditional_distributions = []
 
@@ -346,14 +341,12 @@ class IndependentUniformLearner(Agent):
         raise RuntimeError('Description not implemented')
 
 
-class MoGLearner(Agent):
+class MoGLearner(object):
     """
     Fits mixture of Gaussians to data
     """
 
-    def __init__(self, *args, **kwargs):
-        super(MoGLearner, self).__init__(*args, **kwargs)
-
+    def __init__(self):
         self.data = None
         self.conditional_distributions = []
 
@@ -387,11 +380,10 @@ class MoGLearner(Agent):
         raise RuntimeError('Description not implemented')
 
 
-class SKLearnModelLearner(Agent):
+class SKLearnModelLearner(object):
     """Wrapper for sklearn regression models"""
 
-    def __init__(self, base_class, *args, **kwargs):
-        super(SKLearnModelLearner, self).__init__(*args, **kwargs)
+    def __init__(self, base_class):
         self.sklearn_class = base_class
         self.model = self.sklearn_class()
         self.data = None
@@ -430,15 +422,13 @@ class SKLASSO(SKLearnModelLearner):
     def __init__(self):
         super(SKLASSO, self).__init__(lambda: sklearn.ensemble.RandomForestRegressor(n_estimators=100))
 
-class RegressionLearner(Agent):
+class RegressionLearner(object):
     """
     Fits something to explain all inputs then explains one of the variables as conditional on the rest
     Let's hope that this becomes an example of a generic DAG learning unit
     """
 
-    def __init__(self, input_learner, output_learner, *args, **kwargs):
-        super(RegressionLearner, self).__init__(*args, **kwargs)
-
+    def __init__(self, input_learner, output_learner):
         self.data = None
         self.conditional_distributions = []
 
@@ -555,12 +545,9 @@ class SamplesCrossValidationExpert(Agent):
                                     'scoring_expert' : self.scoring_expert})
 
     def next_action(self):
-        if not self.termination_pending:
-            if not self.data is None:
-                self.cross_validate()
-                self.terminated = True
-            else:
-                time.sleep(1)
+        if not self.data is None:
+            self.cross_validate()
+            self.terminated = True
         # if self.termination_pending or self.terminated:
         #     print 'Cross validater will terminate'
 
@@ -621,11 +608,10 @@ class DataDoublingExpert(Agent):
             self.data_size *= 2
 
     def wait_for_sub_expert(self):
-        time.sleep(0.1)
         if not self.child_processes[0].is_alive():
             # Sub expert has finished - time to run the next expert after reading any final messages
             self.state = 'run'
-        while not self.termination_pending:
+        while True:
             try:
                 message = self.expert_queue.get_nowait()
                 # Message received, add some additional details
@@ -635,13 +621,10 @@ class DataDoublingExpert(Agent):
                 break
 
     def next_action(self):
-        if not self.termination_pending:
-            if not self.data is None:
-                if self.state == 'run':
-                    self.run_sub_expert()
-                elif self.state == 'wait':
-                    self.wait_for_sub_expert()
-            else:
-                time.sleep(1)
+        if not self.data is None:
+            if self.state == 'run':
+                self.run_sub_expert()
+            elif self.state == 'wait':
+                self.wait_for_sub_expert()
         # if self.termination_pending or self.terminated:
         #     print 'Doubler will terminate'
