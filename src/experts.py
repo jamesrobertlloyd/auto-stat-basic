@@ -519,7 +519,7 @@ class SamplesCrossValidationExpert(Agent):
 
     def cross_validate(self):
         # Set up cross validation scheme
-        train_folds = KFold(self.data.arrays['X'].shape[0], n_folds=self.n_folds, indices=False)
+        train_folds = KFold(self.data.arrays['X'].shape[0], n_folds=self.n_folds)
         self.data.set_cv_indices(train_folds)
         # Calculate cross validated scores
         scores = None
