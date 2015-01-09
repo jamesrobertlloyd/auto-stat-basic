@@ -46,6 +46,7 @@ class Independent1dGaussians(object):
         self.means = means
         self.stds = stds
         self.shortdescrip = "Independent 1D gaussians"
+        self.report_id = 0  # makes generating report easier - each distribution type should have unique id
 
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
@@ -71,6 +72,7 @@ class Independent1dUniforms(object):
         self.lefts = lefts
         self.rights = rights
         self.shortdescrip = "Independent uniforms"
+        self.report_id = 1
 
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
@@ -101,6 +103,7 @@ class MoG(object):
         self.stds = stds
         self.sklearn_mog = sklearn_mog
         self.shortdescrip = "Mixture of Gaussians"
+        self.report_id = 2
         self.clustersizes = {}
         self.data_size = None
         self.ldas = None
@@ -140,6 +143,7 @@ class SKLearnModelPlusGaussian(object):
         self.model = model
         self.sd = sd
         self.shortdescrip = "Shortdescrip not implemented"
+        self.report_id = 3
         self.corr = []
         self.partcorr = []
         self.data_size = None
@@ -179,6 +183,7 @@ class RegressionDAG(object):
         self.input_distribution = input_distribution
         self.output_distribution = output_distribution
         self.shortdescrip = "Linear Model"
+        self.report_id = 4
 
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
@@ -422,12 +427,20 @@ class SKLinearModel(SKLearnModelLearner):
                                                                                           normalize=False,
                                                                                           copy_X=True))
 
+    def fit(self):
+        super(SKLinearModel, self).fit()
+        self.conditional_distributions[0].shortdescrip = "Least-squares Regression"
+
 
 class SKLASSO(SKLearnModelLearner):
     """Simple linear regression model based on sklearn implementation"""
 
     def __init__(self):
         super(SKLASSO, self).__init__(lambda: sklearn.linear_model.Lasso())
+
+    def fit(self):
+        super(SKLASSO, self).fit()
+        self.conditional_distributions[0].shortdescrip = "LASSO"
 
 
 class RegressionLearner(object):
@@ -481,6 +494,7 @@ class RegressionLearner(object):
                 best_distribution.data_size = self.data.arrays['X'].shape[0]
 
         self.conditional_distributions = [best_distribution]
+        best_distribution.shortdescrip = best_distribution.output_distribution.shortdescrip
 
     @staticmethod
     def generate_descriptions():
