@@ -6,7 +6,6 @@ Created August 2014
 @authors: James Robert Lloyd (james.robert.lloyd@gmail.com)
 """
 
-from multiprocessing import Queue as multi_q
 from Queue import Empty as q_Empty
 
 import time
@@ -19,7 +18,7 @@ def start_communication(agent):
     except:
         print("Thread for %s has died" % agent)
         traceback.print_exc()
-    # print('%s has really finished' % agent)
+        # print('%s has really finished' % agent)
 
 
 class Agent(object):
@@ -55,7 +54,8 @@ class Agent(object):
                     self.inbox.append(self.inbox_q.get_nowait())
                 except q_Empty:
                     break
-        # TODO : This might be a good place for generic message processing e.g. pause, terminate, clear messages
+                    # TODO : This might be a good place for generic message processing e.g. pause,
+                    # terminate, clear messages
 
     def next_action(self):
         """Inspect messages and state and perform next action checking if process stopped or paused"""
@@ -70,17 +70,17 @@ class Agent(object):
     def terminate_children(self):
         # Send message to all children to terminate
         # print('%s Telling children to terminate' % self)
-        for q,p in zip(self.queues_to_children,self.child_processes):
+        for q, p in zip(self.queues_to_children, self.child_processes):
             if p.is_alive():
-                q.put(dict(label='terminate',sentby=str(self))) # sentby is debug code
+                q.put(dict(label='terminate'))
         # Attempt to join all child processes
         # print('%s Attempting to join children' % self)
         for p in self.child_processes:
             p.join(timeout=self.child_timeout)
-            if p.is_alive() and hasattr(p, 'terminate'):  
+            if p.is_alive() and hasattr(p, 'terminate'):
                 # Only processes can be terminated, not threads currently
                 p.terminate()
-        # print('%s Death executed' % self)
+                # print('%s Death executed' % self)
 
     def tidy_up(self):
         """Run anything pertinent before termination"""
@@ -113,4 +113,4 @@ class Agent(object):
                 self.tidy_up()
                 break
             time.sleep(self.communication_sleep)
-        # print('%s has finished' % self)
+            # print('%s has finished' % self)

@@ -9,11 +9,14 @@ Created August 2014
 
 from __future__ import division
 
-import matplotlib
-matplotlib.use('Agg')  # Use a non-interactive backend
-# import matplotlib.pyplot as plt
-from matplotlib import rcParams
-rcParams.update({'figure.autolayout': True})  # Prevents labels getting chopped - but can cause graph squashing
+# mpl not used in this file, but setting these defaults is global and should only happen once,
+#  hence why it's here
+import matplotlib as mpl
+mpl.use('Agg')  # Use a non-interactive backend
+import seaborn.apionly as sns
+sns.set(style='whitegrid', palette='deep')
+mpl.rcParams.update({'figure.autolayout': True, 'xtick.labelsize': 16, 'ytick.labelsize': 16,
+                     'axes.labelsize': 16, 'axes.titlesize': 16, 'legend.fontsize': 16})
 
 # from sklearn.cross_decomposition import CCA
 
@@ -26,7 +29,7 @@ import numpy as np
 from numpy.random import seed as np_rand_seed
 import random
 # import subprocess
-# import os
+import os
 # import shutil
 # import re
 import sys
@@ -69,8 +72,11 @@ class Manager(Agent):
         self.updated = False
 
         self.state = 'init'
-        self.latex_dir = './pdf-template' # template for report
-        self.temp_dir = None # directory for output
+        self.latex_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'pdf-template')
+        self.temp_dir = None  # directory for output
+        self.templatefl = 'pdf_template.jinja'  # template for pdf
+        self.template = latex_util.get_latex_template(self.templatefl)
+        self.templateVars = {}
 
     def load_data(self, data):
         assert isinstance(data, XSeqDataSet)
@@ -78,27 +84,25 @@ class Manager(Agent):
 
     def init_data_and_experts(self):
         # Preparing report things
-        self.templatefl = "pdf_template.jinja"
-        self.template = latex_util.get_latex_template(self.templatefl)
-        summary = [{} for x in range(self.data.arrays['X'].shape[1])]
+
+        summary = [{} for _ in range(self.data.arrays['X'].shape[1])]
         for i in range(self.data.arrays['X'].shape[1]):
             summary[i]['label'] = self.data.labels['X'][i]
-            summary[i]['min'] = np.min(self.data.arrays['X'][:,i])
-            summary[i]['med'] = np.median(self.data.arrays['X'][:,i])
-            summary[i]['max'] = np.max(self.data.arrays['X'][:,i])
-        self.templateVars = {"data_name" : self.data.name,
-                             "n_inputs" : self.data.arrays['X'].shape[1],
-                             "n_rows" : self.data.arrays['X'].shape[0],
-                             "summary" : summary
-                             }
-        self.temp_dir = latex_util.initialise_tex(self.latex_dir)
+            summary[i]['min'] = np.min(self.data.arrays['X'][:, i])
+            summary[i]['med'] = np.median(self.data.arrays['X'][:, i])
+            summary[i]['max'] = np.max(self.data.arrays['X'][:, i])
+        self.templateVars = {"data_name": self.data.name,
+                             "n_inputs": self.data.arrays['X'].shape[1],
+                             "n_rows": self.data.arrays['X'].shape[0],
+                             "summary": summary}
+        self.temp_dir = latex_util.initialise_tex(self.latex_dir, self.data.name)
         latex_util.update_tex(self.temp_dir, self.template.render({
-                    'title' : 'Your report is being prepared',
-                    'body' : 'This usually takes a couple of minutes - at most ten minutes.'}))
+            'title': 'Your report is being prepared',
+            'body': 'This usually takes a couple of minutes - at most ten minutes.'}))
 
         # Write placeholder message
-        self.outbox.append(dict(label='report', 
-                                text='Your report is being prepared', 
+        self.outbox.append(dict(label='report',
+                                text='Your report is being prepared',
                                 loc=self.temp_dir))
 
         # Partition data in train / test
@@ -163,7 +167,14 @@ class Manager(Agent):
                                                        lambda:
                                                        experts.RegressionLearner(experts.IndependentGaussianLearner,
                                                                                  experts.SKLinearModel),
-                                                       scoring_expert))]
+                                                       scoring_expert)),
+                        # experts.DataDoublingExpert(lambda:
+                        #                            experts.SamplesCrossValidationExpert(
+                        #                                lambda:
+                        #                                experts.RegressionLearner(experts.IndependentGaussianLearner,
+                        #                                                          experts.SKLASSO),
+                        #                                scoring_expert))
+                        ]
         # Load data into experts and set name
         for (i, expert) in enumerate(self.experts):
             expert.name = '%dof%d' % (i + 1, len(self.experts))
@@ -191,18 +202,18 @@ class Manager(Agent):
                 break
         self.state = 'produce report'
 
-
     def produce_report(self):
         if self.updated:
             senders = set([message['sender'] for message in self.all_dist_msgs])
-            maxscores = {x:-np.inf for x in senders}
+            topsender = None
+            maxscores = {x: -np.inf for x in senders}
             maxscore = -np.inf
-            topdists = {x:None for x in senders} # highest score for each sender
-            shortdescs = {x:None for x in senders}
+            topdists = {x: None for x in senders}  # highest score for each sender
+            shortdescs = {x: None for x in senders}
 
-            xs = {x:[] for x in senders}
-            ys = {x:[] for x in senders}
-            xarr = {x:[] for x in senders}
+            xs = {x: [] for x in senders}
+            ys = {x: [] for x in senders}
+            xarr = {x: [] for x in senders}
             for message in self.all_dist_msgs:
                 sender = message['sender']
                 distribution = message['distribution']
@@ -211,7 +222,7 @@ class Manager(Agent):
                     shortdescs[sender] = distribution.shortdescrip
                     maxscores[sender] = distribution.avscore
                     if distribution.avscore > maxscore:
-                        topsender = sender # highest overall score
+                        topsender = sender  # highest overall score
                         maxscore = distribution.avscore
                 xs[sender].append(distribution.data_size)
                 ys[sender].append(distribution.avscore)
@@ -223,21 +234,19 @@ class Manager(Agent):
             topdist.make_graphs(self.data.subsets([self.train_indices, self.test_indices])[0],
                                 self.temp_dir)
             if len(self.all_dist_msgs) / float(len(topdists)) > 1:
-                gr.learning_curve(xs, xarr, shortdescs, self.temp_dir) # make the learning curve
+                gr.learning_curve(xs, xarr, shortdescs, self.temp_dir)  # make the learning curve
 
-
-            self.templateVars.update({'messages' : self.all_dist_msgs,
-                                      'topdists' : topdists.values(),
-                                      'topdist' : topdist,
-                                      'outdir' : self.temp_dir})
+            self.templateVars.update({'messages': self.all_dist_msgs,
+                                      'topdists': topdists.values(),
+                                      'topdist': topdist,
+                                      'outdir': self.temp_dir})
 
             latex_util.update_tex(self.temp_dir, self.template.render(self.templateVars))
 
-            self.outbox.append({'label' : 'report', 
-                                'text' : 'Your report has been updated', 
-                                'loc' : self.temp_dir
-                                })
-            
+            self.outbox.append({'label': 'report',
+                                'text': 'Your report has been updated',
+                                'loc': self.temp_dir})
+
         self.state = 'check for life'
 
     def check_life(self):
@@ -246,8 +255,8 @@ class Manager(Agent):
             if child.is_alive():
                 self.terminated = False
                 break
-        if self.terminated == True:
-            self.wait_for_experts() # get final messages from pipe
+        if self.terminated:
+            self.wait_for_experts()  # get final messages from pipe
             self.produce_report()
         self.state = 'wait for experts'
 
@@ -262,8 +271,8 @@ class Manager(Agent):
                 self.wait_for_experts()
             elif self.state == 'produce report':
                 self.produce_report()
-        # if self.termination_pending or self.terminated:
-        #     print 'Manager will terminate'
+                # if self.termination_pending or self.terminated:
+                #     print 'Manager will terminate'
 
 
 def main():
@@ -274,10 +283,14 @@ def main():
     random.seed(seed)
     # Load data
     data = XSeqDataSet()
-    # data.load_from_file('../data/test-lin/simple-09.csv')
-    # data.load_from_file('../data/test-lin/uci-compressive-strength.csv')
-    data.load_from_file('../data/test-lin/iris_labels.csv')
-    # data.load_from_file('../data/test-lin/stovesmoke-no-outliers.csv')
+    if len(sys.argv) > 1:
+        data.load_from_file(sys.argv[1])
+    else:
+        datadir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'data', 'test-lin')
+        # data.load_from_file(os.path.join(datadir, 'simple-05.csv'))
+        # data.load_from_file(os.path.join(datadir, 'uci-compressive-strength.csv'))
+        data.load_from_file(os.path.join(datadir, 'iris_labels.csv'))
+        # data.load_from_file(os.path.join(datadir, 'stovesmoke-no-outliers.csv'))
     # Setup up manager and communication
     queue_to_manager = multi_q()
     queue_to_main = multi_q()
@@ -289,6 +302,7 @@ def main():
     # Delete the local version of the manager to avoid confusion
     del manager
     # Listen to the manager until it finishes or crashes or user types input
+    report_loc = None
     while True:
         if not p.is_alive():
             break
@@ -304,16 +318,16 @@ def main():
         i, o, e = select.select([sys.stdin], [], [], 1)
         if i:
             print('\n\nTerminating')
-            sys.stdin.readline() # Read whatever was typed to stdin
-            if p.is_alive(): # avoid sending messages to dead processes
-                queue_to_manager.put(dict(label='terminate',sentby='main'))
+            sys.stdin.readline()  # Read whatever was typed to stdin
+            if p.is_alive():  # avoid sending messages to dead processes
+                queue_to_manager.put(dict(label='terminate', sentby='main'))
                 p.join()
             break
 
-    print 'Report is complete'
-    latex_util.compile_tex(report_loc)
-    print "Report is here :" + report_loc
-
+    if report_loc is not None:
+        print 'Report is complete'
+        latex_util.compile_tex(report_loc)
+        print "Report is here: " + report_loc
 
 
 if __name__ == "__main__":

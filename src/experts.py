@@ -23,15 +23,13 @@ from threading import Thread
 from multiprocessing import Queue as multi_q
 from Queue import Empty as q_Empty
 
-
 from agent import Agent, start_communication
 from data import XSeqDataSet, XYDataSet
 import util
 from collections import Counter
 
-
-import make_graphs as gr
 import js_div as js
+import make_graphs as gr
 
 ##############################################
 #                                            #
@@ -52,8 +50,8 @@ class Independent1dGaussians(object):
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
         return np.tile(self.means, (data.arrays['X'].shape[0], 1)) + \
-               np.tile(self.stds, (data.arrays['X'].shape[0], 1)) * \
-               np.random.randn(*data.arrays['X'].shape)
+            np.tile(self.stds, (data.arrays['X'].shape[0], 1)) * \
+            np.random.randn(*data.arrays['X'].shape)
 
     def llh(self, data):
         llh = 0
@@ -63,6 +61,7 @@ class Independent1dGaussians(object):
 
     def make_graphs(self, train_data, outdir):
         gr.histogram(train_data, self.means, self.stds, outdir)
+
 
 class Independent1dUniforms(object):
     # TODO - This should derive from 1d objects and an appropriate DAG
@@ -76,8 +75,8 @@ class Independent1dUniforms(object):
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
         return np.tile(self.lefts, (data.arrays['X'].shape[0], 1)) + \
-               np.tile(self.rights - self.lefts, (data.arrays['X'].shape[0], 1)) * \
-               np.random.random(data.arrays['X'].shape)
+            np.tile(self.rights - self.lefts, (data.arrays['X'].shape[0], 1)) * \
+            np.random.random(data.arrays['X'].shape)
 
     def llh(self, data):
         # if np.all(np.tile(self.lefts, (data.arrays['X'].shape[0], 1)) <= data.arrays['X']) and \
@@ -103,6 +102,8 @@ class MoG(object):
         self.sklearn_mog = sklearn_mog
         self.shortdescrip = "Mixture of Gaussians"
         self.clustersizes = {}
+        self.data_size = None
+        self.ldas = None
 
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
@@ -111,7 +112,7 @@ class MoG(object):
             if self.weights.size == 1:
                 cluster = 0
             else:
-                cluster = np.random.randint(low=0, high=self.weights.size-1)
+                cluster = np.random.randint(low=0, high=self.weights.size - 1)
             sample[i] = self.means[cluster] + np.random.randn(1, data.arrays['X'].shape[1]) * self.stds[cluster]
         return sample
 
@@ -119,17 +120,17 @@ class MoG(object):
         return np.sum(self.sklearn_mog.score(data.arrays['X']))
 
     def make_graphs(self, train_data, outdir):
-        #print self.sklearn_mog.weights_
-        #print self.sklearn_mog.means_
-        #print self.sklearn_mog.covars_
         labels = np.array([self.sklearn_mog.predict(train_data.arrays['X'])])
-        gr.scatterplot_matrix(train_data.arrays['X'],labels.T,train_data.labels['X'],outdir,
-                              self.sklearn_mog.means_, self.sklearn_mog.covars_, self.sklearn_mog.weights_)
-        gr.lda_graph(train_data.arrays['X'],labels.ravel(),outdir,
-                     self.sklearn_mog.means_, self.sklearn_mog.covars_)
+        if train_data.arrays['X'].shape[1] < 6:
+            gr.scatterplot_matrix(train_data.arrays['X'], labels.T, train_data.labels['X'], outdir,
+                                  self.sklearn_mog.means_, self.sklearn_mog.covars_)
+        #else:
+        js.js_graphs(self.sklearn_mog.means_, self.sklearn_mog.covars_, self.sklearn_mog.weights_,
+                     outdir, train_data.arrays['X'], labels.ravel(), train_data.labels['X'])
 
-        js.js_graphs(self.sklearn_mog.means_,self.sklearn_mog.covars_,self.sklearn_mog.weights_,
-                     outdir,train_data.arrays['X'],labels.ravel(),train_data.labels['X'] )
+        if len(self.clustersizes) > 1:  # can't do LDA with only one cluster
+            self.ldas = gr.lda_graph(train_data.arrays['X'], labels.ravel(), outdir,
+                                     self.sklearn_mog.means_, self.sklearn_mog.covars_)
 
 
 class SKLearnModelPlusGaussian(object):
@@ -138,7 +139,10 @@ class SKLearnModelPlusGaussian(object):
     def __init__(self, model, sd):
         self.model = model
         self.sd = sd
-        self.shortdescrip = "Least squares regression"
+        self.shortdescrip = "Shortdescrip not implemented"
+        self.corr = []
+        self.partcorr = []
+        self.data_size = None
 
     def conditional_mean(self, data):
         return self.model.predict(data.arrays['X']).ravel()
@@ -152,20 +156,18 @@ class SKLearnModelPlusGaussian(object):
         return llh
 
     def make_graphs(self, train_data, outdir):
-        XY_data = train_data
-        residuals = np.subtract(XY_data.arrays['Y'], 
-                                np.add(np.sum(self.model.coef_ * XY_data.arrays['X'], axis=1).reshape((-1,1)),
-                                       np.ones((XY_data.arrays['Y'].shape[0],1)) * self.model.intercept_)
+        residuals = np.subtract(train_data.arrays['Y'],
+                                np.add(np.sum(self.model.coef_ * train_data.arrays['X'], axis=1).reshape((-1, 1)),
+                                       np.ones((train_data.arrays['Y'].shape[0], 1)) * self.model.intercept_)
                                 )
-        self.corr = []
-        self.partcorr = []
 
-        for i in range(len(XY_data.labels['X'])):
-            reduced = np.add(residuals, self.model.coef_[i] * XY_data.arrays['X'][:,[i]])
-            self.corr.append(stats.pearsonr(XY_data.arrays['X'][:,[i]],XY_data.arrays['Y'])[0])
-            self.partcorr.append(stats.pearsonr(XY_data.arrays['X'][:,[i]],reduced)[0])
-            
-            gr.reg_graphs(XY_data, i, residuals, reduced, outdir)
+        for i in range(len(train_data.labels['X'])):
+            partial_residuals = np.add(residuals, self.model.coef_[i] * train_data.arrays['X'][:, [i]])
+            self.corr.append(stats.pearsonr(train_data.arrays['X'][:, [i]], train_data.arrays['Y'])[0])
+            self.partcorr.append(stats.pearsonr(train_data.arrays['X'][:, [i]], partial_residuals)[0])
+
+            gr.reg_graphs(train_data, i, residuals, partial_residuals, outdir)
+
 
 class RegressionDAG(object):
     """Output caused by inputs"""
@@ -185,56 +187,56 @@ class RegressionDAG(object):
         inputs = data.variable_subsets(self.input_indices)
         outputs = data.variable_subsets([self.output_index])
 
-        X_data = inputs
+        x_data = inputs
 
-        XY_data = XYDataSet()
-        XY_data.labels['X'] = inputs.labels['X']
-        XY_data.labels['Y'] = outputs.labels['X']
-        XY_data.arrays['X'] = inputs.arrays['X']
-        XY_data.arrays['Y'] = outputs.arrays['X']
+        xy_data = XYDataSet()
+        xy_data.labels['X'] = inputs.labels['X']
+        xy_data.labels['Y'] = outputs.labels['X']
+        xy_data.arrays['X'] = inputs.arrays['X']
+        xy_data.arrays['Y'] = outputs.arrays['X']
 
-        X_sample = self.input_distribution.conditional_sample(X_data)
-        XY_data.arrays['X'] = X_sample
-        Y_sample = self.output_distribution.conditional_samples(XY_data)
+        x_sample = self.input_distribution.conditional_sample(x_data)
+        xy_data.arrays['X'] = x_sample
+        y_sample = self.output_distribution.conditional_samples(xy_data)
 
-        sample[:, self.input_indices] = X_sample
-        sample[:, self.output_index] = Y_sample
+        sample[:, self.input_indices] = x_sample
+        sample[:, self.output_index] = y_sample
         return sample
 
     def llh(self, data):
         assert isinstance(data, XSeqDataSet)
-        sample = np.zeros(data.arrays['X'].shape)
 
         inputs = data.variable_subsets(self.input_indices)
         outputs = data.variable_subsets([self.output_index])
 
-        X_data = inputs
+        x_data = inputs
 
-        XY_data = XYDataSet()
-        XY_data.labels['X'] = inputs.labels['X']
-        XY_data.labels['Y'] = outputs.labels['X']
-        XY_data.arrays['X'] = inputs.arrays['X']
-        XY_data.arrays['Y'] = outputs.arrays['X']
+        xy_data = XYDataSet()
+        xy_data.labels['X'] = inputs.labels['X']
+        xy_data.labels['Y'] = outputs.labels['X']
+        xy_data.arrays['X'] = inputs.arrays['X']
+        xy_data.arrays['Y'] = outputs.arrays['X']
 
-        llh = self.input_distribution.llh(X_data)
-        llh += self.output_distribution.llh(XY_data)
+        llh = self.input_distribution.llh(x_data)
+        llh += self.output_distribution.llh(xy_data)
         return llh
 
     def make_graphs(self, train_data, outdir):
         inputs = train_data.variable_subsets(self.input_indices)
         outputs = train_data.variable_subsets([self.output_index])
 
-        XY_data = XYDataSet()
-        XY_data.labels['X'] = inputs.labels['X']
-        XY_data.labels['Y'] = outputs.labels['X']
-        XY_data.arrays['X'] = inputs.arrays['X']
-        XY_data.arrays['Y'] = outputs.arrays['X']
+        xy_data = XYDataSet()
+        xy_data.labels['X'] = inputs.labels['X']
+        xy_data.labels['Y'] = outputs.labels['X']
+        xy_data.arrays['X'] = inputs.arrays['X']
+        xy_data.arrays['Y'] = outputs.arrays['X']
 
-        self.input_distribution.make_graphs(XY_data,outdir)
-        self.output_distribution.make_graphs(XY_data,outdir)
+        self.input_distribution.make_graphs(xy_data, outdir)
+        self.output_distribution.make_graphs(xy_data, outdir)
 
-        gr.dag(XY_data.labels['X'], XY_data.labels['Y'][0],
+        gr.dag(xy_data.labels['X'], xy_data.labels['Y'][0],
                outdir)
+
 
 ##############################################
 #                                            #
@@ -245,6 +247,7 @@ class RegressionDAG(object):
 
 class ZeroScorer(object):
     """Dummy class for scoring stuff"""
+
     def __init__(self):
         pass
 
@@ -254,17 +257,19 @@ class ZeroScorer(object):
 
 class MMDScorer(object):
     """Maximum mean discrepancy of two distributions estimated from samples"""
+
     def __init__(self, lengthscales):
         self.lengthscales = lengthscales
 
     def score(self, data, distribution):
-        X = data.arrays['X']
-        Y = distribution.conditional_sample(data)  # In the future only manipulated inputs will be given
-        return util.MMD(X, Y, self.lengthscales)
+        x = data.arrays['X']
+        y = distribution.conditional_sample(data)  # In the future only manipulated inputs will be given
+        return util.MMD(x, y, self.lengthscales)
 
 
 class LLHScorer(object):
     """Pointwise log likelihood"""
+
     def __init__(self):
         pass
 
@@ -272,6 +277,7 @@ class LLHScorer(object):
     def score(data, distribution):
         # Converted to per data point llh
         return distribution.llh(data) / data.arrays['X'].shape[0]
+
 
 ##############################################
 #                                            #
@@ -283,6 +289,7 @@ class LLHScorer(object):
 # TODO - is this used anywhere?
 class DistributionModel(object):
     """Wrapper for a distribution"""
+
     def __init__(self, dist):
         self.conditional_distributions = [dist]
 
@@ -330,8 +337,8 @@ class IndependentUniformLearner(object):
         lefts = np.min(self.data.arrays['X'], 0)
         rights = np.max(self.data.arrays['X'], 0)
         widths = rights - lefts
-        lefts = lefts - 0.1  * widths
-        rights = rights + 0.1 * widths
+        lefts -= 0.1 * widths
+        rights += 0.1 * widths
         # TODO - This should be composed of 1d uniforms and a DAG
         self.conditional_distributions = [Independent1dUniforms(lefts=lefts, rights=rights)]
 
@@ -356,14 +363,14 @@ class MoGLearner(object):
 
     def fit(self):
         best_model = None
-        best_BIC = None
+        best_bic = None
         for n_components in range(1, 11, 1):
             sk_learner = GMM(n_components=n_components, n_iter=250, n_init=5)
             sk_learner.fit(self.data.arrays['X'])
-            BIC = sk_learner.bic(self.data.arrays['X'])
+            bic = sk_learner.bic(self.data.arrays['X'])
             # print BIC
-            if (best_BIC is None) or (best_BIC > BIC):
-                best_BIC = BIC
+            if (best_bic is None) or (best_bic > bic):
+                best_bic = bic
                 best_model = sk_learner
         weights = best_model.weights_
         means = best_model.means_
@@ -420,7 +427,8 @@ class SKLASSO(SKLearnModelLearner):
     """Simple linear regression model based on sklearn implementation"""
 
     def __init__(self):
-        super(SKLASSO, self).__init__(lambda: sklearn.ensemble.RandomForestRegressor(n_estimators=100))
+        super(SKLASSO, self).__init__(lambda: sklearn.linear_model.Lasso())
+
 
 class RegressionLearner(object):
     """
@@ -452,14 +460,14 @@ class RegressionLearner(object):
             input_agent.load_data(inputs)
             input_agent.fit()
 
-            XY_data = XYDataSet()
-            XY_data.labels['X'] = inputs.labels['X']
-            XY_data.labels['Y'] = outputs.labels['X']
-            XY_data.arrays['X'] = inputs.arrays['X']
-            XY_data.arrays['Y'] = outputs.arrays['X']
+            xy_data = XYDataSet()
+            xy_data.labels['X'] = inputs.labels['X']
+            xy_data.labels['Y'] = outputs.labels['X']
+            xy_data.arrays['X'] = inputs.arrays['X']
+            xy_data.arrays['Y'] = outputs.arrays['X']
 
             output_agent = self.output_learner()
-            output_agent.load_data(XY_data)
+            output_agent.load_data(xy_data)
             output_agent.fit()
 
             conditional_distribution = RegressionDAG(output_index, input_indices,
@@ -493,6 +501,7 @@ class SamplesCrossValidationExpert(Agent):
     performance of these distributions by asking them to produce samples and then passing them to some scoring function,
     returns the distributions and cross validation scores to its parent
     """
+
     def __init__(self, sub_expert_class, scoring_expert, n_folds=5, *args, **kwargs):
         super(SamplesCrossValidationExpert, self).__init__(*args, **kwargs)
 
@@ -541,15 +550,15 @@ class SamplesCrossValidationExpert(Agent):
             for (i, distribution) in enumerate(distributions):
                 distribution.scores = scores[:, i]
                 distribution.avscore = np.median(scores[:, i])
-                self.outbox.append({'distribution' : distribution,
-                                    'scoring_expert' : self.scoring_expert})
+                self.outbox.append({'distribution': distribution,
+                                    'scoring_expert': self.scoring_expert})
 
     def next_action(self):
         if not self.data is None:
             self.cross_validate()
             self.terminated = True
-        # if self.termination_pending or self.terminated:
-        #     print 'Cross validater will terminate'
+            # if self.termination_pending or self.terminated:
+            #     print 'Cross validater will terminate'
 
 
 class DataDoublingExpert(Agent):
@@ -557,6 +566,7 @@ class DataDoublingExpert(Agent):
     Follows a data doubling strategy to turn any other expert into an anytime system
     Assumes that the sub expert will terminate of its own accord
     """
+
     def __init__(self, sub_expert_class, *args, **kwargs):
         """
         :type data: XSeqDataSet
@@ -626,5 +636,5 @@ class DataDoublingExpert(Agent):
                 self.run_sub_expert()
             elif self.state == 'wait':
                 self.wait_for_sub_expert()
-        # if self.termination_pending or self.terminated:
-        #     print 'Doubler will terminate'
+                # if self.termination_pending or self.terminated:
+                #     print 'Doubler will terminate'

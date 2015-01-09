@@ -112,12 +112,14 @@ Method & Cross-validated log predictive density \\
 \end{table}
 
 ((* if messages|length / topdists|length|float > 1 *)) ((= i.e. if some data doubling has happened =))
-The models were trained on increasing amounts of data. Here is the learning curve:
+I trained the models with an increasing number of datapoints. The learning curve shows how this affects model performance and variance.
+I computed the smaller datasets first, so if my analysis terminated early then some of the later models may be missing
 \begin{figure}[H]
 \newcommand{\mdrd}{\home/figures}
 \begin{center}
 \includegraphics[width=0.75\textwidth]{\mdrd/learning_curve.png}
 \end{center}
+\caption{Learning curve showing the effect of increasing datapoints on performance}
 \end{figure}
 ((* endif *))
 
@@ -140,10 +142,8 @@ The output ((( summary[topdist.output_index].label ))) (column ((( topdist.outpu
 ((* for i in topdist.input_indices *))
 \item
 ((* if topdist.output_distribution.model.coef_[loop.index0] > 0 *))
-increases
-((* else *))
-decreases
-((* endif *)) linearly with input ((( summary[i].label ))) (column ((( i + 1 )))) 
+increases((* else *))decreases((* endif *))
+ linearly with input ((( summary[i].label ))) (column ((( i + 1 ))))
 ((* endfor *))
 \end{itemize}
 
@@ -151,8 +151,9 @@ Here is a graphical representation:
 \begin{figure}[H]
 \newcommand{\mdrd}{\home/figures}
 \begin{center}
-\includegraphics[width=0.5\textwidth]{\mdrd/pgm_graph.png}
+\includegraphics[width=0.5\textwidth,height=0.95\textheight,keepaspectratio]{\mdrd/pgm_graph.png}
 \end{center}
+\caption{Directed Acyclic Graph showing the model}
 \end{figure}
 
 \subsection{Detailed plots}
@@ -176,36 +177,30 @@ Accounting for the rest of the model, this changes slightly to a part correlatio
 This correlation does not change when accounting for the rest of the model (see figure \ref{fig:train_((( summary[i].label )))}b).
 ((* endif *))
 
-
 \begin{figure}[H]
-\newcommand{\wmgd}{0.3\columnwidth}
+\newcommand{\wmgd}{0.5\columnwidth}
 \newcommand{\mdrd}{\home/figures}
 \newcommand{\mbm}{\hspace{-0.3cm}}
 \begin{center}
-\begin{tabular}{ccc}
+\begin{tabular}{cc}
 \mbm
 \includegraphics[width=\wmgd]{\mdrd/scatter_graph_(((loop.index0))).png} &
-\includegraphics[width=\wmgd ]{\mdrd/reduced_graph_(((loop.index0))).png} &
-\includegraphics[width=\wmgd ]{\mdrd/residuals_graph_(((loop.index0))).png} \\
-a) & b) & c)
+\includegraphics[width=\wmgd]{\mdrd/partial_residuals_graph_(((loop.index0))).png} \\
+a) & b) \\
+\includegraphics[width=\wmgd]{\mdrd/residuals_graph_(((loop.index0))).png} &
+\includegraphics[width=\wmgd]{\mdrd/histo_graph_(((loop.index0))).png} \\
+c) & d) \\
 \end{tabular}
 \end{center}
 \caption{
 a) Training data plotted against input ((( summary[i].label ))).
 b) Partial residuals (data minus the rest of the model) and fit of this component.
-c) Residuals (data minus the full model).}
+c) Residuals (data minus the full model).
+d) Model for input}
 \label{fig:train_((( summary[i].label )))}
-\end{figure}
-Also here's a graph of how I modelled this input:
-\begin{figure}[H]
-\newcommand{\mdrd}{\home/figures}
-\begin{center}
-\includegraphics[width=0.5\textwidth]{\mdrd/histo_graph_(((loop.index0))).png}
-\end{center}
 \end{figure}
 
 ((* endfor *))
-
 
 \section{Model criticism}
 %Model is awesome and has no flaws.
@@ -214,8 +209,8 @@ Also here's a graph of how I modelled this input:
 ((* elif topdist.shortdescrip == 'Mixture of Gaussians' *)) ((= MoG section =))
 \subsection{Summary}
 
-The data has ((( topdist.means|length ))) clusters. 
-
+My model for the data has ((( topdist.means|length ))) clusters.
+Their sizes are shown below
 
 \begin{table}[H]
 \begin{center}
@@ -234,37 +229,36 @@ Cluster number & Size \\
 
 
 \subsection{Detailed plots}
+((* if n_inputs < 6 *))
+The graph below shows all of the pairs of variables plotted against each other, with the clusters shown on top.
 \begin{figure}[H]
 \newcommand{\mdrd}{\home/figures}
 \begin{center}
 \includegraphics[width=\textwidth]{\mdrd/scatter_matrix.png}
 \end{center}
+\caption{Pairwise scatter plots of the data}
 \end{figure}
 
-Cluster projection with LDA
+((* else *))
+The four projections that best separate the clusters are shown below.
+These projections have the highest values for the Jensen-Shannon divergence.
 \begin{figure}[H]
 \newcommand{\mdrd}{\home/figures}
 \begin{center}
-\includegraphics[width=\textwidth]{\mdrd/lda_scatter.png}
+\includegraphics[width=\textwidth]{\mdrd/js_scatter.png}
 \end{center}
 \end{figure}
 
-((* if n_inputs > 2 *))
-Three best projections with JS divergence:
+((* endif *))
 
+((* if topdist.clustersizes|length > 1 *))
+Linear Discriminant Analysis has been used to find the combinations of features that maximise the linear separation.
 \begin{figure}[H]
-\newcommand{\wmgd}{0.3\columnwidth}
 \newcommand{\mdrd}{\home/figures}
-\newcommand{\mbm}{\hspace{-0.3cm}}
 \begin{center}
-\begin{tabular}{ccc}
-\mbm
-\includegraphics[width=\wmgd]{\mdrd/js_scatter0.png} &
-\includegraphics[width=\wmgd ]{\mdrd/js_scatter1.png} &
-\includegraphics[width=\wmgd ]{\mdrd/js_scatter2.png} \\
-a) & b) & c)
-\end{tabular}
+\includegraphics[width=0.75\textwidth]{\mdrd/lda_scatter.png}
 \end{center}
+\caption{Cluster projection with LDA}
 \end{figure}
 ((* endif *))
 
