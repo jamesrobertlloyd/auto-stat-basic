@@ -105,6 +105,8 @@ class MoG(object):
         self.shortdescrip = "Mixture of Gaussians"
         self.report_id = 2
         self.clustersizes = {}
+        self.clusterind2order = []  # converts sklearn labels to ones ordered by size
+        self.clusterorder2ind = []
         self.data_size = None
         self.ldas = None
 
@@ -123,17 +125,25 @@ class MoG(object):
         return np.sum(self.sklearn_mog.score(data.arrays['X']))
 
     def make_graphs(self, train_data, outdir):
-        labels = np.array([self.sklearn_mog.predict(train_data.arrays['X'])])
+        clusterlabels_ind = np.array([self.sklearn_mog.predict(train_data.arrays['X'])])[0]
+        self.clustersizes = Counter(clusterlabels_ind)
+        self.clusterorder2ind = [ind[0] for ind in self.clustersizes.most_common()]
+        self.clusterind2order = [-1 for _ in range(len(self.weights))]
+        for order, ind in enumerate(self.clusterorder2ind):
+            self.clusterind2order[ind] = order
+        clusterlabels_ord = np.array([self.clusterind2order[x] for x in clusterlabels_ind])
+        #print self.clusterind2order
+        #print clusterlabels
         if train_data.arrays['X'].shape[1] < 6:
-            gr.scatterplot_matrix(train_data.arrays['X'], labels.T, train_data.labels['X'], outdir,
-                                  self.sklearn_mog.means_, self.sklearn_mog.covars_)
-        #else:
+            gr.scatterplot_matrix(train_data.arrays['X'], clusterlabels_ord.T, train_data.labels['X'], outdir,
+                                  self.sklearn_mog.means_, self.sklearn_mog.covars_, self.clusterind2order)
+
         js.js_graphs(self.sklearn_mog.means_, self.sklearn_mog.covars_, self.sklearn_mog.weights_,
-                     outdir, train_data.arrays['X'], labels.ravel(), train_data.labels['X'])
+                     outdir, train_data.arrays['X'], clusterlabels_ord, train_data.labels['X'], self.clusterind2order)
 
         if len(self.clustersizes) > 1:  # can't do LDA with only one cluster
-            self.ldas = gr.lda_graph(train_data.arrays['X'], labels.ravel(), outdir,
-                                     self.sklearn_mog.means_, self.sklearn_mog.covars_)
+            self.ldas = gr.lda_graph(train_data.arrays['X'], clusterlabels_ord, outdir,
+                                     self.sklearn_mog.means_, self.sklearn_mog.covars_, self.clusterind2order)
 
 
 class SKLearnModelPlusGaussian(object):
@@ -382,8 +392,6 @@ class MoGLearner(object):
         # stds = np.sqrt(1 / best_model.precs_)
         stds = np.sqrt(best_model.covars_)
         self.conditional_distributions = [MoG(weights=weights, means=means, stds=stds, sklearn_mog=best_model)]
-        self.conditional_distributions[0].clustersizes = Counter(
-            self.conditional_distributions[0].sklearn_mog.predict(self.data.arrays['X']))
         self.conditional_distributions[0].data_size = self.data.arrays['X'].shape[0]
 
     @staticmethod

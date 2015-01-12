@@ -21,6 +21,19 @@ def palette(i):
     return pal[i % len(pal)]
 
 
+def graded_palette(i):
+    pal = sns.light_palette(color=palette(0), reverse=True, n_colors=10)  # dark to light blues
+    return pal[i % len(pal)]
+
+
+def cb_palette(i):
+    #pal = ['#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3',
+    #       '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd']  # pastels
+    pal = ['#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99',  # paired bright colours
+           '#e31a1c', '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a']
+    return pal[i % len(pal)]
+
+
 def dag(inlabels, outlabel, outdir):
     """DAG for linear regression"""
     dot_object = pydot.Dot(graph_name="main_graph", rankdir="LR", labelloc='b',
@@ -39,7 +52,7 @@ def dag(inlabels, outlabel, outdir):
     dot_object.write_png(outdir + '/figures/pgm_graph.png', prog='dot')
 
 
-def learning_curve(xs, xarr, shortdescs, outdir):
+def learning_curve(all_messages, senders, outdir):
     """Make graph of how score varies with amount of data"""
     savefile = outdir + '/figures/learning_curve.png'
 
@@ -49,9 +62,17 @@ def learning_curve(xs, xarr, shortdescs, outdir):
     ax.set_xlabel('Number of datapoints')
     ax.set_ylabel('Cross-Validated Log Predictive Density')
 
-    for i, sender in enumerate(xs):
-        ys = [np.median(x) for x in xarr[sender]]
-        ax.plot(xs[sender], ys, label=shortdescs[sender])
+    shortdescs, xs, ys, xarr = {}, {x: [] for x in senders}, {x: [] for x in senders}, {x: [] for x in senders}
+    for message in all_messages:
+        sender = message['sender']
+        distribution = message['distribution']
+        shortdescs[sender] = distribution.shortdescrip
+        xs[sender].append(distribution.data_size)
+        ys[sender].append(distribution.avscore)
+        xarr[sender].append(sorted(distribution.scores))
+
+    for i, sender in enumerate(shortdescs.keys()):
+        ax.plot(xs[sender], ys[sender], label=shortdescs[sender])
         sns.boxplot(xarr[sender], positions=xs[sender], whis=np.inf,
                     ax=ax, color=palette(i), widths=10)
 
@@ -68,18 +89,19 @@ def learning_curve(xs, xarr, shortdescs, outdir):
     plt.close(fig)
 
 
-def scatterplot_matrix(data, labels, names, outdir, means, covars):
+def scatterplot_matrix(data, labels, names, outdir, means, covars, ind2order):
     """Plots a scatterplot matrix of subplots."""
     with mpl.rc_context({'figure.autolayout': False, 'font.size': 20}):
+        pal = cb_palette  # so I only have to set it once
         numdata, numvars = data.shape
 
-        colours = [palette(x) for x in labels]
+        colours = [pal(x) for x in labels]
         fig, axes = plt.subplots(nrows=numvars, ncols=numvars, figsize=(10, 9), sharex='col', sharey='row')
 
         classes = np.unique(labels)
         recs = []
         for i in classes:
-            recs.append(mpl.patches.Rectangle((0, 0), 1, 1, fc=palette(i)))
+            recs.append(mpl.patches.Rectangle((0, 0), 1, 1, fc=pal(i)))
         plt.figlegend(recs, classes, loc='center right')
 
         # Plot the data.
@@ -97,7 +119,7 @@ def scatterplot_matrix(data, labels, names, outdir, means, covars):
                         # 95% confidence ellipse
                         ell = mpl.patches.Ellipse((mean[j], mean[i]), 2 * np.sqrt(covars[k][j] * 5.991),
                                                   2 * np.sqrt(covars[k][i] * 5.991),
-                                                  color=palette(k), alpha=0.5)
+                                                  color=pal(ind2order[k]), alpha=0.5)
                         ax.add_artist(ell)
                         ell.set_clip_box(ax.bbox)
                     ax.scatter(data[:, j], data[:, i], c=colours, label=labels)
@@ -129,7 +151,8 @@ def scatterplot_matrix(data, labels, names, outdir, means, covars):
         plt.close(fig)
 
 
-def lda_graph(train_data, labels, outdir, means, covars):
+def lda_graph(train_data, labels, outdir, means, covars, ind2order):
+    pal = cb_palette
     clf = LDA()
     clf.fit(train_data, labels)
 
@@ -155,19 +178,19 @@ def lda_graph(train_data, labels, outdir, means, covars):
 
             n, bins, patches = ax.hist([cl0, cl1], 50, normed=True, stacked=True, rwidth=1.0)
             x = np.arange(bins[0], bins[-1], (bins[1] - bins[0])/2.0)
-            ax.plot(x, rv0.pdf(x)/2, color=palette(0), label='Cluster 0')
-            ax.plot(x, rv1.pdf(x)/2, color=palette(1), label='Cluster 1')
+            ax.plot(x, rv0.pdf(x)/2, color=pal(ind2order[0]), label='Cluster ' + str(ind2order[0]))
+            ax.plot(x, rv1.pdf(x)/2, color=pal(ind2order[1]), label='Cluster ' + str(ind2order[1]))
 
             ax.legend(loc='best')
         else:
-            colours = [palette(lab) for lab in labels]
+            colours = [pal(lab) for lab in labels]
             ax.scatter(train_data_s[:, 0], train_data_s[:, 1], c=colours)
             ax.set_ylabel("Linear combination 2")
 
             classes = np.unique(labels)
             recs = []
             for i in classes:  # make legend
-                recs.append(mpl.patches.Rectangle((0, 0), 1, 1, fc=palette(i)))
+                recs.append(mpl.patches.Rectangle((0, 0), 1, 1, fc=pal(i)))
             plt.figlegend(recs, classes, loc='center right')
 
             for k in range(means.shape[0]):  # for each cluster, draw 95% confidence ellipse
@@ -175,11 +198,10 @@ def lda_graph(train_data, labels, outdir, means, covars):
                 u = w[0] / linalg.norm(w[0])
                 angle = np.arctan(u[1] / u[0])
                 angle = 180 * angle / np.pi
-                #newmean = np.dot(mean, clf.scalings_[:, [0, 1]])
 
                 ell = mpl.patches.Ellipse(means_s[k], 2 * np.sqrt(v[0] * 5.991),
                                           2 * np.sqrt(v[1] * 5.991),
-                                          angle=angle, color=palette(k), alpha=0.5)
+                                          angle=angle, color=pal(ind2order[k]), alpha=0.5)
                 ax.add_artist(ell)
                 ell.set_clip_box(ax.bbox)
 

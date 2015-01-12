@@ -124,7 +124,7 @@ I computed the smaller datasets first, so if my analysis terminated early then s
 ((* endif *))
 
 The ((( topdist.shortdescrip ))) method has the highest cross-validated log predictive density so I have used this method to train a model on half of the data.
-In the rest of this report I have described this model and have attempted to falsify it using held out test data.
+In the rest of this report I have described this model and have attempted to criticise it using held out test data.
 
 
 \section{Model description}                        
@@ -218,8 +218,8 @@ Their sizes are shown below
 \hline
 Cluster number & Size \\
 \hline
-((* for item in topdist.clustersizes *))
-((( item ))) & ((( topdist.clustersizes[item] ))) \\
+((* for item in topdist.clusterorder2ind *))
+((( loop.index0 ))) & ((( topdist.clustersizes[item] ))) \\
 ((* endfor *))
 \hline
 \end{tabular}
@@ -238,8 +238,17 @@ The graph below shows all of the pairs of variables plotted against each other, 
 \end{center}
 \caption{Pairwise scatter plots of the data}
 \end{figure}
+((* endif *))
 
-((* else *))
+The Jensen-Shannon divergence (a measure of cluster separation) has been calculated to find projections which separate out the clusters.
+
+\begin{figure}[H]
+\newcommand{\mdrd}{\home/figures}
+\begin{center}
+\includegraphics[width=\textwidth]{\mdrd/js_heatmap.png}
+\end{center}
+\end{figure}
+
 The four projections that best separate the clusters are shown below.
 These projections have the highest values for the Jensen-Shannon divergence.
 \begin{figure}[H]
@@ -248,8 +257,6 @@ These projections have the highest values for the Jensen-Shannon divergence.
 \includegraphics[width=\textwidth]{\mdrd/js_scatter.png}
 \end{center}
 \end{figure}
-
-((* endif *))
 
 ((* if topdist.clustersizes|length > 1 *))
 Linear Discriminant Analysis has been used to find the combinations of features that maximise the linear separation.

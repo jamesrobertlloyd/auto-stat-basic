@@ -168,12 +168,12 @@ class Manager(Agent):
                                                        experts.RegressionLearner(experts.IndependentGaussianLearner,
                                                                                  experts.SKLinearModel),
                                                        scoring_expert)),
-                        # experts.DataDoublingExpert(lambda:
-                        #                            experts.SamplesCrossValidationExpert(
-                        #                                lambda:
-                        #                                experts.RegressionLearner(experts.IndependentGaussianLearner,
-                        #                                                          experts.SKLASSO),
-                        #                                scoring_expert))
+                        experts.DataDoublingExpert(lambda:
+                                                   experts.SamplesCrossValidationExpert(
+                                                       lambda:
+                                                       experts.RegressionLearner(experts.IndependentGaussianLearner,
+                                                                                 experts.SKLASSO),
+                                                       scoring_expert))
                         ]
         # Load data into experts and set name
         for (i, expert) in enumerate(self.experts):
@@ -205,36 +205,28 @@ class Manager(Agent):
     def produce_report(self):
         if self.updated:
             senders = set([message['sender'] for message in self.all_dist_msgs])
-            topsender = None
             maxscores = {x: -np.inf for x in senders}
-            maxscore = -np.inf
             topdists = {x: None for x in senders}  # highest score for each sender
-            shortdescs = {x: None for x in senders}
 
-            xs = {x: [] for x in senders}
-            ys = {x: [] for x in senders}
-            xarr = {x: [] for x in senders}
             for message in self.all_dist_msgs:
                 sender = message['sender']
                 distribution = message['distribution']
-                if distribution.avscore > maxscores[sender]:
+                if distribution.data_size > maxscores[sender]:  # select dists with max datapoints
                     topdists[sender] = distribution
-                    shortdescs[sender] = distribution.shortdescrip
-                    maxscores[sender] = distribution.avscore
-                    if distribution.avscore > maxscore:
-                        topsender = sender  # highest overall score
-                        maxscore = distribution.avscore
-                xs[sender].append(distribution.data_size)
-                ys[sender].append(distribution.avscore)
-                xarr[sender].append(sorted(distribution.scores))
-            #print self.all_dist_msgs[-1]
-            topdist = topdists[topsender]
+                    maxscores[sender] = distribution.data_size
+
+            maxscore = -np.inf
+            topdist = None
+            for distribution in topdists.values():
+                if distribution.avscore > maxscore:
+                    topdist = distribution
+                    maxscore = distribution.avscore
 
             # make graphs
             topdist.make_graphs(self.data.subsets([self.train_indices, self.test_indices])[0],
                                 self.temp_dir)
             if len(self.all_dist_msgs) / float(len(topdists)) > 1:
-                gr.learning_curve(xs, xarr, shortdescs, self.temp_dir)  # make the learning curve
+                gr.learning_curve(self.all_dist_msgs, senders, self.temp_dir)  # make the learning curve
 
             self.templateVars.update({'messages': self.all_dist_msgs,
                                       'topdists': topdists.values(),
@@ -287,9 +279,9 @@ def main():
         data.load_from_file(sys.argv[1])
     else:
         datadir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'data', 'test-lin')
-        # data.load_from_file(os.path.join(datadir, 'simple-05.csv'))
+        data.load_from_file(os.path.join(datadir, 'simple-04.csv'))
         # data.load_from_file(os.path.join(datadir, 'uci-compressive-strength.csv'))
-        data.load_from_file(os.path.join(datadir, 'iris_labels.csv'))
+        # data.load_from_file(os.path.join(datadir, 'iris_labels.csv'))
         # data.load_from_file(os.path.join(datadir, 'stovesmoke-no-outliers.csv'))
     # Setup up manager and communication
     queue_to_manager = multi_q()
