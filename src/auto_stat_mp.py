@@ -14,9 +14,20 @@ from __future__ import division
 import matplotlib as mpl
 mpl.use('Agg')  # Use a non-interactive backend
 import seaborn.apionly as sns
-sns.set(style='whitegrid', palette='deep')
-mpl.rcParams.update({'figure.autolayout': True, 'xtick.labelsize': 16, 'ytick.labelsize': 16,
-                     'axes.labelsize': 16, 'axes.titlesize': 16, 'legend.fontsize': 16})
+#pal = ['#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3',
+#       '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd']  # pastels
+#pal = ['#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99',
+#       '#e31a1c', '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a']  # paired bright colours
+#pal = 'deep'  # seaborn colours
+pal = ['#1f78b4', '#33a02c', '#e31a1c', '#ff7f00', '#6a3d9a',
+       '#a6cee3', '#b2df8a', '#fb9a99', '#fdbf6f', '#cab2d6']  # bright then pastel
+sns.set(style='whitegrid', palette=pal)
+font_size = 12
+mpl.rcParams.update({'figure.autolayout': True, 'savefig.dpi': 200, 'axes.formatter.limits': '-3, 3',
+                     'font.family': 'Inconsolata', 'font.size': font_size,
+                     'xtick.labelsize': font_size, 'ytick.labelsize': font_size,
+                     'axes.labelsize': font_size, 'axes.titlesize': font_size, 'legend.fontsize': font_size
+                     })
 
 # from sklearn.cross_decomposition import CCA
 
@@ -161,19 +172,27 @@ class Manager(Agent):
         self.experts = [experts.DataDoublingExpert(lambda:
                                                    experts.SamplesCrossValidationExpert(
                                                        experts.MoGLearner,
-                                                       scoring_expert)),
+                                                       scoring_expert)
+                                                   ),
                         experts.DataDoublingExpert(lambda:
                                                    experts.SamplesCrossValidationExpert(
                                                        lambda:
                                                        experts.RegressionLearner(experts.IndependentGaussianLearner,
                                                                                  experts.SKLinearModel),
-                                                       scoring_expert)),
+                                                       scoring_expert)
+                                                   ),
                         experts.DataDoublingExpert(lambda:
                                                    experts.SamplesCrossValidationExpert(
                                                        lambda:
                                                        experts.RegressionLearner(experts.IndependentGaussianLearner,
                                                                                  experts.SKLASSO),
-                                                       scoring_expert))
+                                                       scoring_expert)
+                                                   ),
+                        experts.DataDoublingExpert(lambda:
+                                                   experts.SamplesCrossValidationExpert(
+                                                       experts.IndependentGaussianLearner,
+                                                       scoring_expert)
+                                                   ),
                         ]
         # Load data into experts and set name
         for (i, expert) in enumerate(self.experts):
@@ -215,22 +234,32 @@ class Manager(Agent):
                     topdists[sender] = distribution
                     maxscores[sender] = distribution.data_size
 
-            maxscore = -np.inf
-            topdist = None
-            for distribution in topdists.values():
-                if distribution.avscore > maxscore:
-                    topdist = distribution
-                    maxscore = distribution.avscore
+            topdists = sorted(topdists.values(), key=lambda k: k.avscore,
+                              reverse=True)  # list of distributions, highest avscore first
+            topdist = topdists[0]
+            indgaussdist = None
+            for dist in topdists:
+                if dist.report_id == 0:
+                    indgaussdist = dist
+                    break
+
+            if indgaussdist and indgaussdist.avscore == topdist.avscore:
+                topdist = indgaussdist  # use independent model if other isn't better
 
             # make graphs
             topdist.make_graphs(self.data.subsets([self.train_indices, self.test_indices])[0],
                                 self.temp_dir)
             if len(self.all_dist_msgs) / float(len(topdists)) > 1:
                 gr.learning_curve(self.all_dist_msgs, senders, self.temp_dir)  # make the learning curve
+            else:
+                gr.method_boxplots(self.all_dist_msgs, self.temp_dir)
 
+            #for dist in topdists:
+            #    print dist.shortdescrip, dist.scores
             self.templateVars.update({'messages': self.all_dist_msgs,
-                                      'topdists': topdists.values(),
+                                      'topdists': topdists,
                                       'topdist': topdist,
+                                      'inddist': indgaussdist,
                                       'outdir': self.temp_dir})
 
             latex_util.update_tex(self.temp_dir, self.template.render(self.templateVars))
@@ -279,9 +308,9 @@ def main():
         data.load_from_file(sys.argv[1])
     else:
         datadir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'data', 'test-lin')
-        data.load_from_file(os.path.join(datadir, 'simple-04.csv'))
-        # data.load_from_file(os.path.join(datadir, 'uci-compressive-strength.csv'))
-        # data.load_from_file(os.path.join(datadir, 'iris_labels.csv'))
+        # data.load_from_file(os.path.join(datadir, 'simple-03.csv'))
+        data.load_from_file(os.path.join(datadir, 'thyroid.csv'))
+        # data.load_from_file(os.path.join(datadir, 'iris.csv'))
         # data.load_from_file(os.path.join(datadir, 'stovesmoke-no-outliers.csv'))
     # Setup up manager and communication
     queue_to_manager = multi_q()

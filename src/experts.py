@@ -45,7 +45,8 @@ class Independent1dGaussians(object):
     def __init__(self, means, stds):
         self.means = means
         self.stds = stds
-        self.shortdescrip = "Independent 1D gaussians"
+        self.shortdescrip = "Independent 1D gaussian"
+        self.data_size = None
         self.report_id = 0  # makes generating report easier - each distribution type should have unique id
 
     def conditional_sample(self, data):
@@ -62,6 +63,9 @@ class Independent1dGaussians(object):
 
     def make_graphs(self, train_data, outdir):
         gr.histogram(train_data, self.means, self.stds, outdir)
+        if train_data.arrays['X'].shape[1] < 6 and self.means.shape[0] > 1:
+            gr.scatterplot_matrix(train_data.arrays['X'], [0], train_data.labels['X'], outdir,
+                                  [self.means], np.array([self.stds]) * np.array([self.stds]), [0])
 
 
 class Independent1dUniforms(object):
@@ -73,6 +77,7 @@ class Independent1dUniforms(object):
         self.rights = rights
         self.shortdescrip = "Independent uniforms"
         self.report_id = 1
+        self.data_size = None
 
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
@@ -109,6 +114,8 @@ class MoG(object):
         self.clusterorder2ind = []
         self.data_size = None
         self.ldas = None
+        self.lda_import = None
+        self.jsds = []
 
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
@@ -132,18 +139,16 @@ class MoG(object):
         for order, ind in enumerate(self.clusterorder2ind):
             self.clusterind2order[ind] = order
         clusterlabels_ord = np.array([self.clusterind2order[x] for x in clusterlabels_ind])
-        #print self.clusterind2order
-        #print clusterlabels
         if train_data.arrays['X'].shape[1] < 6:
             gr.scatterplot_matrix(train_data.arrays['X'], clusterlabels_ord.T, train_data.labels['X'], outdir,
                                   self.sklearn_mog.means_, self.sklearn_mog.covars_, self.clusterind2order)
 
-        js.js_graphs(self.sklearn_mog.means_, self.sklearn_mog.covars_, self.sklearn_mog.weights_,
-                     outdir, train_data.arrays['X'], clusterlabels_ord, train_data.labels['X'], self.clusterind2order)
-
-        if len(self.clustersizes) > 1:  # can't do LDA with only one cluster
-            self.ldas = gr.lda_graph(train_data.arrays['X'], clusterlabels_ord, outdir,
-                                     self.sklearn_mog.means_, self.sklearn_mog.covars_, self.clusterind2order)
+        self.ldas, self.lda_import = gr.lda_graph(train_data.arrays['X'], clusterlabels_ord, outdir,
+                                                  self.sklearn_mog.means_, self.sklearn_mog.covars_,
+                                                  self.clusterind2order)
+        self.jsds = js.js_graphs(self.sklearn_mog.means_, self.sklearn_mog.covars_, self.sklearn_mog.weights_,
+                                 outdir, train_data.arrays['X'], clusterlabels_ord, train_data.labels['X'],
+                                 self.clusterind2order)
 
 
 class SKLearnModelPlusGaussian(object):
@@ -180,7 +185,7 @@ class SKLearnModelPlusGaussian(object):
             self.corr.append(stats.pearsonr(train_data.arrays['X'][:, [i]], train_data.arrays['Y'])[0])
             self.partcorr.append(stats.pearsonr(train_data.arrays['X'][:, [i]], partial_residuals)[0])
 
-            gr.reg_graphs(train_data, i, residuals, partial_residuals, outdir)
+            gr.reg_graphs(train_data, i, self.model.coef_[i], residuals, partial_residuals, outdir)
 
 
 class RegressionDAG(object):
@@ -251,6 +256,9 @@ class RegressionDAG(object):
 
         gr.dag(xy_data.labels['X'], xy_data.labels['Y'][0],
                outdir)
+
+        if train_data.arrays['X'].shape[1] < 6:
+            gr.scatterplot_matrix_no_ellipse(train_data.arrays['X'], train_data.labels['X'], outdir)
 
 
 ##############################################
@@ -327,6 +335,7 @@ class IndependentGaussianLearner(object):
         stds = np.std(self.data.arrays['X'], 0)
         # TODO - This should be composed of 1d Gaussians and a DAG
         self.conditional_distributions = [Independent1dGaussians(means=means, stds=stds)]
+        self.conditional_distributions[0].data_size = self.data.arrays['X'].shape[0]
 
     @staticmethod
     def generate_descriptions():
@@ -356,6 +365,7 @@ class IndependentUniformLearner(object):
         rights += 0.1 * widths
         # TODO - This should be composed of 1d uniforms and a DAG
         self.conditional_distributions = [Independent1dUniforms(lefts=lefts, rights=rights)]
+        self.conditional_distributions[0].data_size = self.data.arrays['X'].shape[0]
 
     @staticmethod
     def generate_descriptions():
@@ -379,7 +389,7 @@ class MoGLearner(object):
     def fit(self):
         best_model = None
         best_bic = None
-        for n_components in range(1, 11, 1):
+        for n_components in range(2, 11, 1):
             sk_learner = GMM(n_components=n_components, n_iter=250, n_init=5)
             sk_learner.fit(self.data.arrays['X'])
             bic = sk_learner.bic(self.data.arrays['X'])
@@ -570,7 +580,7 @@ class SamplesCrossValidationExpert(Agent):
             distributions = self.sub_expert.conditional_distributions
             # Report results of cross validation
             for (i, distribution) in enumerate(distributions):
-                distribution.scores = scores[:, i]
+                distribution.scores = np.sort(scores[:, i])
                 distribution.avscore = np.median(scores[:, i])
                 self.outbox.append({'distribution': distribution,
                                     'scoring_expert': self.scoring_expert})
@@ -619,7 +629,7 @@ class DataDoublingExpert(Agent):
         else:
             self.epoch += 1
             # Reduce data size if appropriate - if so this is the last run
-            if self.data_size >= self.data.arrays['X'].shape[0]:
+            if self.data_size + 20 >= self.data.arrays['X'].shape[0]:
                 self.data_size = self.data.arrays['X'].shape[0]
                 self.terminate_next_run = True
             # Create a new expert and hook up communication

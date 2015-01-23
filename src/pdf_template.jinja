@@ -1,10 +1,10 @@
-
 \documentclass{article} %% For LaTeX2e
 \usepackage{format/nips13submit_e}
 \nipsfinalcopy %% Uncomment for camera-ready version
 \usepackage{times}
 \usepackage{hyperref}
 \usepackage{url}
+\usepackage{longtable}
 \usepackage{color}
 \definecolor{mydarkblue}{rgb}{0,0.08,0.45}
 \hypersetup{
@@ -16,16 +16,15 @@
     urlcolor=mydarkblue,
     pdfview=FitH}
 
-\usepackage{graphicx, amsmath, amsfonts, bm, lipsum, capt-of}
-
+\usepackage{graphicx, amsmath, amsfonts, bm, lipsum}
 \usepackage{natbib, xcolor, wrapfig, booktabs, multirow, caption}
-
 \usepackage{float}
 
 \def\ie{i.e.\ }
 \def\eg{e.g.\ }
 
 \newcommand{\home}{((( outdir )))}
+\newcommand{\figdir}{\home/figures}
 
 \title{((* if title is defined *)) ((( title ))) ((* else *)) An automatic report for the dataset ((( data_name|escape_tex ))) ((* endif *))}
 
@@ -35,29 +34,17 @@
 
 \newcommand{\fix}{\marginpar{FIX}}
 \newcommand{\new}{\marginpar{NEW}}
-
 \setlength{\marginparwidth}{0.9in}
+\setlength{\LTpost}{0pt} % gets rid of big gap after longtables
 \input{include/commenting.tex}
-
-%%%% For submission, make all render blank.
-%%\\renewcommand{\LATER}[1]{}
-%%\\renewcommand{\\fLATER}[1]{}
-%%\\renewcommand{\TBD}[1]{}
-%%\\renewcommand{\\fTBD}[1]{}
-%%\\renewcommand{\PROBLEM}[1]{}
-%%\\renewcommand{\\fPROBLEM}[1]{}
-%%\\renewcommand{\NA}[1]{#1}  %% Note, NA's pass through!
 
 \begin{document}
 
 \allowdisplaybreaks
-
 \maketitle
-
 ((* if body is defined *)) ((= 'body' is defined for error and server busy reports =))
 ((( body )))
 \end{document}
-
 ((* else *))
 
 \begin{abstract}
@@ -68,135 +55,199 @@ This model is then described, displaying the most influential components first.
 Model criticism techniques have then been applied to attempt to find discrepancies between the model and data.
 \end{abstract}
 
-\section{Brief description of data set}
 
+\section{Brief description of data set}
 To confirm that I have interpreted the data correctly a short summary of the data set follows.
 There are ((( n_inputs ))) input columns and ((( n_rows ))) rows of data.
-A summary of these variables is given in table \ref{table:description}.
+A summary of these variables is given in table \ref{tab:description}.
 
-\begin{table}[H]
-\begin{center}
+\begin{center}  % don't want table to float, so no \begin{table}
+\captionsetup{type=table}  % makes the label point to the top of the table
 \begin{tabular}{|l|rrr|}
 \hline
- Name & Minimum & Median & Maximum \\
+Name & Minimum & Median & Maximum \\
 \hline
 ((* for item in summary *))
 ((( item.label ))) & ((( '%.2g' % item.min ))) & ((( '%.2g' % item.med ))) & ((( '%.2g' % item.max|round(2) ))) \\
 ((* endfor *))
 \hline
 \end{tabular}
+\captionof{table}{Summary statistics of data}
+\label{tab:description}
 \end{center}
-\caption{Summary statistics of data}
-\label{table:description}
-\end{table}
+
 
 \section{Summary of model construction}
-
 I have compared a number of different model construction techniques by computing cross-validated log predictive density.
-These figures are summarised in table \ref{table:cv-summary}.
+These figures are summarised in table \ref{tab:cv-summary}.
 
-\begin{table}[H]
 \begin{center}
+\captionsetup{type=table}
 \begin{tabular}{|l|r|}
 \hline
 Method & Cross-validated log predictive density \\
 \hline
-((* for dist in topdists *))
+((* for dist in topdists|sort(attribute='avscore', reverse=True) *))
 ((( dist.shortdescrip ))) & ((( '%.2g' % dist.avscore ))) \\
 ((* endfor *))
 \hline
 \end{tabular}
+\captionof{table}{Summary of model construction methods and cross-validated errors}
+\label{tab:cv-summary}
 \end{center}
-\caption{Summary of model construction methods and cross-validated errors}
-\label{table:cv-summary}
-\end{table}
 
 ((* if messages|length / topdists|length|float > 1 *)) ((= i.e. if some data doubling has happened =))
-I trained the models with an increasing number of datapoints. The learning curve shows how this affects model performance and variance.
-I computed the smaller datasets first, so if my analysis terminated early then some of the later models may be missing
+I trained the models with an increasing number of datapoints. The learning curve (Figure \ref{fig:learning-curve}) shows how this affects model performance and variance.
+I computed the smaller datasets first, so if my analysis terminated early then some of the later models may be missing from this curve.
 \begin{figure}[H]
-\newcommand{\mdrd}{\home/figures}
-\begin{center}
-\includegraphics[width=0.75\textwidth]{\mdrd/learning_curve.png}
-\end{center}
+\centering
+\includegraphics[width=0.75\textwidth]{\figdir/learning_curve.png}
 \caption{Learning curve showing the effect of increasing datapoints on performance}
+\label{fig:learning-curve}
+\end{figure}
+
+((* else *))
+The distribution of scores for each method is shown in Figure \ref{fig:learning-curve}.
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.75\textwidth]{\figdir/learning_curve.png}
+\caption{Distribution of scores for each method}
+\label{fig:learning-curve}
 \end{figure}
 ((* endif *))
 
-The ((( topdist.shortdescrip ))) method has the highest cross-validated log predictive density so I have used this method to train a model on half of the data.
-In the rest of this report I have described this model and have attempted to criticise it using held out test data.
+The ((( topdist.shortdescrip ))) method has the highest median cross-validated log predictive density.
+((* if inddist and topdist != inddist *))((= then say how much better it is than independent gaussians =))
+This is ((( '%.2g' % (topdist.avscore - inddist.avscore) ))) units better than just assuming that all the variables are independent.
+PLACEHOLDER: Interpret this score!
+((* endif *))
+((* if topdists|length > 1 *))((= then talk about how it compares with other models =))
+PLACEHOLDER TEXT:  ((* if topdist.scores[0] - (topdist.scores[-1] - topdist.scores[0]) > topdists[1].scores[-1] *))
+This method is lots better than the next best model.
+((* elif topdist.scores[0] > topdists[1].scores[-1] *))
+This method is a fair bit better than the next best model.
+((* elif topdist.avscore  > topdists[1].scores[-1] *))
+This method is only slightly better than the next best model.
+((* else *))
+It's not actually much better than the next best model, but I'm going to tell you about it anyway.
+((* endif *))
+((* endif *))
+I have used this method to train a model on half of the data, and in the rest of this report I have described this model and have attempted to criticise it using held out test data.
 
+((* if topdist.report_id == 4 *)) ((= linear model =))
 
-\section{Model description}                        
-
-
+\section{Model description}
 In this section I have described the model I have constructed to explain the data.
 A quick summary is below, followed by quantification of the model with accompanying plots of model fit and residuals.
 
-((* if topdist.report_id == 4 *))
 
 \subsection{Summary}
+I investigated all models where one variable is modelled as conditional on the other variables (which are modelled as independent).
+I selected the best of these models by log likelihood score. This model is represented in Figure \ref{fig:DAG}.
+Variables ((* for i in topdist.input_indices *))
+((* if loop.first *))((* elif loop.last *)) and ((* else *)), ((* endif *))
+((( summary[i].label )))((* endfor *))
+ have been modelled as independent and ((( summary[topdist.output_index].label ))) depends on ((* for i in topdist.input_indices *))
+((* if loop.first *))((* elif loop.last *)) and ((* else *)), ((* endif *))
+((( summary[i].label )))((* endfor *)).
 
-The output ((( summary[topdist.output_index].label ))) (column ((( topdist.output_index + 1 )))):
-\begin{itemize}
-((* for i in topdist.input_indices *))
-\item
-((* if topdist.output_distribution.model.coef_[loop.index0] > 0 *))
-increases((* else *))decreases((* endif *))
- linearly with input ((( summary[i].label ))) (column ((( i + 1 ))))
-((* endfor *))
-\end{itemize}
-
-Here is a graphical representation:
 \begin{figure}[H]
-\newcommand{\mdrd}{\home/figures}
-\begin{center}
-\includegraphics[width=0.5\textwidth,height=0.95\textheight,keepaspectratio]{\mdrd/pgm_graph.png}
-\end{center}
+\centering
+\includegraphics[width=0.5\textwidth,height=0.95\textheight,keepaspectratio]{\figdir/pgm_graph.png}
 \caption{Directed Acyclic Graph showing the model}
+\label{fig:DAG}
 \end{figure}
 
-\subsection{Detailed plots}
+
+\subsection{Variables modelled as independent}
+A summary of the model for each of the the variables I have modelled as independent is in Table \ref{tab:ind-summary}.
+The distributions are in Figure \ref{fig:ind-hist}.
+
+\begin{center}
+\captionsetup{type=table}
+\begin{tabular}{|l|ll|}
+\hline
+Variable & Distribution & Parameters\\
+\hline
+((* for i in topdist.input_indices *))
+((( summary[i].label ))) & ((( topdist.input_distribution.shortdescrip ))) &
+mean=((( '%.2g' % topdist.input_distribution.means[loop.index0] ))), std=((( '%.2g' % topdist.input_distribution.stds[loop.index0] ))) \\
+((* endfor *))
+\hline
+\end{tabular}
+\captionof{table}{Summary of models for the independent variables }
+\label{tab:ind-summary}
+\end{center}
+
+\begin{center}
+\captionsetup{type=figure}
+\begin{longtable}{ccc}
+((* for i in topdist.input_indices *))
+\includegraphics[width=0.33\textwidth]{\figdir/histo_graph_((( loop.index0 ))).png} ((( loop.cycle('&', '&', '\\\\') )))
+((* if loop.last *))
+((* if loop.length % 3 == 1 *))
+& \\
+((* elif loop.length % 3 == 2 *))
+\\
+((* endif *))
+((* endif *))
+((* endfor *))
+\end{longtable}
+\captionof{figure}{Histogram and distribution for each of the input variables} % could put this inside longtable, but then caption says "table"
+\label{fig:ind-hist}
+\addtocounter{table}{-1}  % longtable counts as a table
+\end{center}
+
+
+\subsection{Conditional model of (((summary[topdist.output_index].label )))}
+A summary of the correlations between the output variable and the input variables is in Table \ref{tab:cond-corr}.
+
+\begin{center}
+\captionsetup{type=table}
+\begin{tabular}{|l|rr|}
+\hline
+Input & Correlation & Part correlation\\
+\hline
+((* for i in topdist.input_indices *))
+((( summary[i].label ))) &
+((( '%.2f' % topdist.output_distribution.corr[loop.index0] ))) &
+((( '%.2f' % topdist.output_distribution.partcorr[loop.index0] ))) \\
+((* endfor *))
+\hline
+\end{tabular}
+\captionof{table}{Summary of correlation with output}
+\label{tab:cond-corr}
+\end{center}
 
 ((* for i in topdist.input_indices *))
-
-\paragraph{((* if topdist.output_distribution.model.coef_[loop.index0] > 0 *)) 
-Increase 
-((* else *)) 
-Decrease
-((* endif *)) with ((( summary[i].label )))}
-The correlation between the data and the input ((( summary[i].label ))) is ((( '%.2g' % topdist.output_distribution.corr[loop.index0] ))) (see figure \ref{fig:train_((( summary[i].label )))}a).
-
+\paragraph{((* if topdist.output_distribution.model.coef_[loop.index0] > 0 *))
+Increase ((* else *))
+Decrease ((* endif *))
+with ((( summary[i].label )))}
+The correlation between the data and the input ((( summary[i].label ))) is ((( '%.2f' % topdist.output_distribution.corr[loop.index0] )))
+ (see figure \ref{fig:train_((( summary[i].label )))}a).
 ((* if (topdist.output_distribution.partcorr[loop.index0] - topdist.output_distribution.corr[loop.index0])|abs > 0.3 *))
-Accounting for the rest of the model, this changes substantially to a part correlation of ((( '%.2g' % topdist.output_distribution.partcorr[loop.index0] ))) (see figure \ref{fig:train_((( summary[i].label )))}b).
+Accounting for the rest of the model, this changes substantially to a part correlation of ((( '%.2f' % topdist.output_distribution.partcorr[loop.index0] ))) (see figure \ref{fig:train_((( summary[i].label )))}b).
 ((* elif (topdist.output_distribution.partcorr[loop.index0] - topdist.output_distribution.corr[loop.index0])|abs > 0.1 *))
-Accounting for the rest of the model, this changes moderately to a part correlation of ((( '%.2g' % topdist.output_distribution.partcorr[loop.index0] ))) (see figure \ref{fig:train_((( summary[i].label )))}b).
+Accounting for the rest of the model, this changes moderately to a part correlation of ((( '%.2f' % topdist.output_distribution.partcorr[loop.index0] ))) (see figure \ref{fig:train_((( summary[i].label )))}b).
 ((* elif (topdist.output_distribution.partcorr[loop.index0] - topdist.output_distribution.corr[loop.index0])|abs > 0.01 *))
-Accounting for the rest of the model, this changes slightly to a part correlation of ((( '%.2g' % topdist.output_distribution.partcorr[loop.index0] ))) (see figure \ref{fig:train_((( summary[i].label )))}b).
+Accounting for the rest of the model, this changes slightly to a part correlation of ((( '%.2f' % topdist.output_distribution.partcorr[loop.index0] ))) (see figure \ref{fig:train_((( summary[i].label )))}b).
 ((* else *))
 This correlation does not change when accounting for the rest of the model (see figure \ref{fig:train_((( summary[i].label )))}b).
 ((* endif *))
 
 \begin{figure}[H]
-\newcommand{\wmgd}{0.5\columnwidth}
-\newcommand{\mdrd}{\home/figures}
-\newcommand{\mbm}{\hspace{-0.3cm}}
-\begin{center}
-\begin{tabular}{cc}
-\mbm
-\includegraphics[width=\wmgd]{\mdrd/scatter_graph_(((loop.index0))).png} &
-\includegraphics[width=\wmgd]{\mdrd/partial_residuals_graph_(((loop.index0))).png} \\
-a) & b) \\
-\includegraphics[width=\wmgd]{\mdrd/residuals_graph_(((loop.index0))).png} &
-\includegraphics[width=\wmgd]{\mdrd/histo_graph_(((loop.index0))).png} \\
-c) & d) \\
+\centering
+\begin{tabular}{ccc}
+\includegraphics[width=0.33\textwidth]{\figdir/scatter_graph_(((loop.index0))).png} &
+\includegraphics[width=0.33\textwidth]{\figdir/partial_residuals_graph_(((loop.index0))).png} &
+\includegraphics[width=0.33\textwidth]{\figdir/residuals_graph_(((loop.index0))).png} \\
+a) & b) & c)\\
 \end{tabular}
-\end{center}
 \caption{
 a) Training data plotted against input ((( summary[i].label ))).
 b) Partial residuals (data minus the rest of the model) and fit of this component.
-c) Residuals (data minus the full model).
-d) Model for input}
+c) Residuals (data minus the full model).}
 \label{fig:train_((( summary[i].label )))}
 \end{figure}
 
@@ -207,13 +258,18 @@ d) Model for input}
 
 
 ((* elif topdist.report_id == 2 *)) ((= MoG section =))
+\section{Model description}
+In this section I have described the model I have constructed to explain the data.
+A quick summary is below, followed by quantification of the model with accompanying plots of model fit.
+
+
 \subsection{Summary}
+I investigated mixture models with two to ten clusters, and used the Bayesian information criterion to select a model.
+The best model had ((( topdist.means|length ))) clusters.
+The sizes of the clusters are shown in Table \ref{tab:cluster-summary}.
 
-My model for the data has ((( topdist.means|length ))) clusters.
-Their sizes are shown below
-
-\begin{table}[H]
 \begin{center}
+\captionsetup{type=table}
 \begin{tabular}{|l|r|}
 \hline
 Cluster number & Size \\
@@ -223,51 +279,132 @@ Cluster number & Size \\
 ((* endfor *))
 \hline
 \end{tabular}
+\captionof{table}{Summary of cluster sizes}
+\label{tab:cluster-summary}
 \end{center}
-\caption{Summary of cluster sizes}
-\end{table}
 
 
 \subsection{Detailed plots}
 ((* if n_inputs < 6 *))
-The graph below shows all of the pairs of variables plotted against each other, with the clusters shown on top.
+Figure \ref{fig:pairplot} below shows all of the pairs of variables plotted against each other, with the clusters shown on top.
 \begin{figure}[H]
-\newcommand{\mdrd}{\home/figures}
-\begin{center}
-\includegraphics[width=\textwidth]{\mdrd/scatter_matrix.png}
-\end{center}
+\centering
+\includegraphics[width=\textwidth]{\figdir/scatter_matrix.png}
 \caption{Pairwise scatter plots of the data}
+\label{fig:pairplot}
 \end{figure}
 ((* endif *))
+The Jensen-Shannon divergence (JSD) is a measure of cluster separation. JSD here has been divided by log2 of the number of clusters to give a
+value between 0 and 1 (A good value of JSD on this scale is above 0.4). I calculated this for each pair of variables to find 2D plots which
+show a good separation of the clusters.
+    ((* for i in topdist.jsds if i[0] > 0.4 *))
+((* if loop.first *))
+In order, these are:
+\begin{itemize}
+((* endif *))
+\item ((( summary[i[1]].label ))) and ((( summary[i[2]].label ))) (JSD: ((( '%.2g' % i[0] ))))
+((* if loop.last *))
+\end{itemize}
+((* endif *))
+((* else *))
+However, none of the pairs are good.
+((* endfor *))
 
-The Jensen-Shannon divergence (a measure of cluster separation) has been calculated to find projections which separate out the clusters.
-
+A heatmap of JSD is shown in Figure \ref{fig:js-heatmap}. Darker colours indicate that a pair of variables separate the clusters more clearly.
 \begin{figure}[H]
-\newcommand{\mdrd}{\home/figures}
-\begin{center}
-\includegraphics[width=\textwidth]{\mdrd/js_heatmap.png}
-\end{center}
+\centering
+\includegraphics[width=0.75\textwidth]{\figdir/js_heatmap.png}
+\caption{Heatmap of JSD for all the pairs of variables}
+\label{fig:js-heatmap}
 \end{figure}
 
-The four projections that best separate the clusters are shown below.
-These projections have the highest values for the Jensen-Shannon divergence.
-\begin{figure}[H]
-\newcommand{\mdrd}{\home/figures}
+((* for i in topdist.jsds if i[0] > 0.4 *))
+((* if loop.first *))
+The projections that separate the clusters well are shown in Figure \ref{fig:js-goodproj}.
 \begin{center}
-\includegraphics[width=\textwidth]{\mdrd/js_scatter.png}
+\captionsetup{type=figure}
+\begin{longtable}{cc}
+((* endif *))
+\includegraphics[width=0.5\textwidth]{\figdir/js_scatter_((( loop.index0 ))).png} ((( loop.cycle('&', '\\\\') )))
+((* if loop.last *))
+((* if loop.length % 2 == 1 *))
+\\
+((* endif *))
+\end{longtable}
+\captionof{figure}{Good projections according to JSD}
+\label{fig:js-goodproj}
+\addtocounter{table}{-1}
 \end{center}
-\end{figure}
+((* endif *))
+((* endfor *))
 
-((* if topdist.clustersizes|length > 1 *))
-Linear Discriminant Analysis has been used to find the combinations of features that maximise the linear separation.
+Linear Discriminant Analysis (LDA) has been used to find a linear combination of features which separates the classes.
+LDA tries to reduce the dimensionality of the data while preserving as much of the class discriminatory information as possible.
+((* if topdist.clustersizes|length > 2 *))
+A projection of the clusters onto the first two LDA combinations is shown in Figure \ref{fig:lda-projection}.
+((* else *))
+A projection of the clusters onto this combination is shown in Figure \ref{fig:lda-projection}.
+((* endif *))
 \begin{figure}[H]
-\newcommand{\mdrd}{\home/figures}
-\begin{center}
-\includegraphics[width=0.75\textwidth]{\mdrd/lda_scatter.png}
-\end{center}
+\centering
+\includegraphics[width=0.75\textwidth]{\figdir/lda_scatter.png}
 \caption{Cluster projection with LDA}
+\label{fig:lda-projection}
+\end{figure}
+
+\begin{center}
+\captionsetup{type=table}
+\begin{tabular}{|l|rr|}
+\hline
+Variable & Coefficient & Importance \\
+\hline
+((* for item in topdist.ldas *))
+((( summary[loop.index0].label ))) & ((( '%.2g' % item[0] ))) & ((( '%.2f' % topdist.lda_import[loop.index0][0] )))\\
+((* endfor *))
+\hline
+\end{tabular}
+\captionof{table}{Coefficients of first LDA combination}
+\label{tab:lda-coeff1}
+\end{center}
+
+((* if topdist.clustersizes|length > 2 *))
+\begin{center}
+\captionsetup{type=table}
+\begin{tabular}{|l|rr|}
+\hline
+Variable & Coefficient & Importance \\
+\hline
+((* for item in topdist.ldas *))
+((( summary[loop.index0].label ))) & ((( '%.2g' % item[1] ))) & ((( '%.2f' % topdist.lda_import[loop.index0][1] )))\\
+((* endfor *))
+\hline
+\end{tabular}
+\captionof{table}{Coefficients of second LDA combination}
+\label{tab:lda-coeff2}
+\end{center}
+((* endif *))
+
+\section{Model criticism}
+%Model is awesome and has no flaws.
+
+((* elif topdist.report_id == 0 *)) ((= independent gaussians =))
+
+\section{Model description}
+I have fitted a clustering model to the data, with one cluster which contains all the datapoints.
+
+
+\subsection{Detailed plots}
+((* if n_inputs < 6 *))
+Figure \ref{fig:pairplot} shows all of the pairs of variables plotted against each other, with the cluster shown on top.
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{\figdir/scatter_matrix.png}
+\caption{Pairwise scatter plots of the data}
+\label{fig:pairplot}
 \end{figure}
 ((* endif *))
+TODO: neither JSD or LDA can be used with one cluster - what other plots should we show?
+
 
 \section{Model criticism}
 %Model is awesome and has no flaws.

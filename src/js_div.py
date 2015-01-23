@@ -1,4 +1,4 @@
-#!/usr/bin/python
+import textwrap
 
 import numpy as np
 from scipy.stats import multivariate_normal
@@ -16,7 +16,8 @@ def best_jsd(means, covars, weights):
     maxes = np.amax(means + np.sqrt(covars * 5.991), axis=0)
     mins = np.amin(means - np.sqrt(covars * 5.991), axis=0)
     jsds = []
-    axes = np.identity(len(means[0]))
+    n_clusters, n_features = means.shape
+    axes = np.identity(n_features)
     weights = np.array(weights)
 
     for j in range(len(means[0])):
@@ -53,7 +54,7 @@ def best_jsd(means, covars, weights):
             jsd = (term1[0] - term2) * np.log(2)  # convert to log2 from ln
             if jsd < 0:
                 jsd = 0
-            jsds.append((jsd, i, j))
+            jsds.append((jsd / np.log2(n_clusters), i, j))  # scale by number of clusters
             # print (i, j),  jsd, term1[0], term1_full[0], term2
 
     jsds.sort(reverse=True)
@@ -64,74 +65,63 @@ def best_jsd(means, covars, weights):
 def js_graphs(means, covars, weights, outdir, data, labels, columns, ind2order):
     """Draw the three best projections as found by JS divergence"""
     all_jsd = best_jsd(means, covars, weights)
-    best_projs = all_jsd[0:4]
 
-    column_labels = range(means.shape[1])
-    row_labels = range(means.shape[1])
-    griddata = np.zeros((means.shape[1], means.shape[1]))
+    n_clusters, n_features = means.shape
+    griddata = np.zeros((n_features, n_features))
     for jsd, i, j in all_jsd:
         griddata[i, j] = griddata[j, i] = jsd
     fig, ax = plt.subplots()
     cmap = sns.light_palette(color=gr.palette(0), as_cmap=True)
-    heatmap = ax.pcolor(griddata, cmap=cmap, vmin=0)  # vmax=1)
+    heatmap = ax.pcolor(griddata, cmap=cmap, vmin=0, vmax=1)
     fig.colorbar(heatmap)
 
     # put the major ticks at the middle of each cell
-    ax.set_xticks(np.arange(griddata.shape[0])+0.5, minor=False)
-    ax.set_yticks(np.arange(griddata.shape[1])+0.5, minor=False)
+    ax.set_xticks(np.arange(n_features)+0.5, minor=False)
+    ax.set_yticks(np.arange(n_features)+0.5, minor=False)
 
     ax.invert_yaxis()
     ax.xaxis.tick_top()
-    ax.set_title('JSD for different projections')
-    ax.set_xlabel('Column index for feature')
-    ax.set_ylabel('Column index for feature')
 
-    ax.set_xticklabels(row_labels, minor=False)
-    ax.set_yticklabels(column_labels, minor=False)
+    wrapped_cols = [textwrap.fill(x, 10) for x in columns]
+    ax.set_xticklabels(wrapped_cols, minor=False)
+    ax.set_yticklabels(columns, minor=False)
     savefile = outdir + '/figures/js_heatmap.png'
     fig.savefig(savefile)
     plt.close(fig)
 
-    pal = gr.cb_palette
-    colours = [pal(x) for x in labels]
-    with mpl.rc_context({'figure.autolayout': False, 'font.size': 20}):
-
-        fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(10, 9))
-
-        classes = np.unique(labels)
-        recs = []
-        for i in classes:
-            recs.append(mpl.patches.Rectangle((0, 0), 1, 1, fc=pal(i)))
-        plt.figlegend(recs, classes, loc='center right')
-
-        for ax, proj in zip([(0, 0), (0, 1), (1, 0), (1, 1)], best_projs):
-            ax = axes[ax]
+    colours = [gr.palette(x) for x in labels]
+    with mpl.rc_context(gr.two_cols):
+        fig, ax = plt.subplots()
+        good_projs = [x for x in all_jsd if x[0] > 0.4]
+        for i, proj in enumerate(good_projs):
+            ax.clear()
             x = proj[1]
             y = proj[2]
 
-            #ax.set_title(columns[y] + ' against ' + columns[x])
-            ax.set_xlabel(columns[x])
-            ax.set_ylabel(columns[y])
-
+            ax.set_xlabel(textwrap.fill(columns[x], 45))
+            ax.set_ylabel(textwrap.fill(columns[y], 30))
             ax.scatter(data[:, x], data[:, y], c=colours)
 
             for k, mean in enumerate(means):
                 ell = mpl.patches.Ellipse((mean[x], mean[y]), 2 * np.sqrt(covars[k][x] * 5.991),
                                           2 * np.sqrt(covars[k][y] * 5.991),
-                                          color=pal(ind2order[k]), alpha=0.5)
+                                          color=gr.palette(ind2order[k]), alpha=0.5)
                 ax.add_artist(ell)
                 ell.set_clip_box(ax.bbox)
 
-        fig.tight_layout()
-        fig.subplots_adjust(right=0.86)  # gives space for legend
+            savefile = outdir + '/figures/js_scatter_{}.png'.format(i)
+            fig.savefig(savefile)
 
-        savefile = outdir + '/figures/js_scatter.png'
+        if len(good_projs) > 0:  # add legend to last graph
+            classes = np.unique(labels)
+            recs = []
+            for i in classes:
+                recs.append(mpl.patches.Rectangle((0, 0), 1, 1, fc=gr.palette(i)))
+            fig.legend(recs, classes, loc='center right')
 
-        fig.savefig(savefile)
+            fig.set_tight_layout(False)
+            fig.subplots_adjust(right=0.8)
+            fig.savefig(savefile)
         plt.close(fig)
 
     return all_jsd
-
-
-
-
