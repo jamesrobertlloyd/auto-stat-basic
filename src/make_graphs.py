@@ -10,22 +10,30 @@ import numpy as np
 from scipy.stats import norm
 from scipy import linalg
 
-
-def fs(i):
-    tw = 10.0
-    return '{}, {}'.format(tw * i, tw * i * 0.75)
-
-two_cols = {'figure.figsize': fs(0.5)}  # rc params for graphs side-by-side
-three_cols = {'figure.figsize': fs(0.33)}  # rc params for graphs side-by-side
-full_box = {'figure.figsize': '10, 10'}
-width_3o4 = {'figure.figsize': fs(0.75)}
+# rc params for different sizes of graph
+font_size = 16
+scatterplot = {'figure.figsize': '10, 10', 'font.size': font_size,  # graph width should be 10 - height varies
+               'xtick.labelsize': font_size, 'ytick.labelsize': font_size,
+               'axes.labelsize': font_size, 'axes.titlesize': font_size, 'legend.fontsize': font_size}
+font_size = 18
+width_3o4 = {'figure.figsize': '8, 6', 'font.size': font_size,
+             'xtick.labelsize': font_size, 'ytick.labelsize': font_size,
+             'axes.labelsize': font_size, 'axes.titlesize': font_size, 'legend.fontsize': font_size}
+font_size = 24
+two_cols = {'figure.figsize': '8, 6', 'font.size': font_size,
+            'xtick.labelsize': font_size, 'ytick.labelsize': font_size,
+            'axes.labelsize': font_size, 'axes.titlesize': font_size, 'legend.fontsize': font_size}
+font_size = 30
+three_cols = {'figure.figsize': '8, 6', 'font.size': font_size,
+              'xtick.labelsize': font_size, 'ytick.labelsize': font_size,
+              'axes.labelsize': font_size, 'axes.titlesize': font_size, 'legend.fontsize': font_size}
 
 
 def palette(i):
     """Not all plotting functions use default colour cycle - this function takes a number and returns the
     colour associated with it.
     """
-    pal = sns.color_palette(name=None)
+    pal = sns.color_palette(name=None, n_colors=10)
     return pal[i % len(pal)]
 
 
@@ -34,7 +42,7 @@ def dag(inlabels, outlabel, outdir):
     dot_object = pydot.Dot(graph_name="main_graph", rankdir="LR", labelloc='b',
                            labeljust='r', ranksep=1)
     dot_object.set_node_defaults(shape='circle', fixedsize='false',
-                                 height=1, width=1, fontsize=12)
+                                 height=1, width=1, fontsize=12, fontname='Inconsolata')
 
     outnode = pydot.Node(name=outlabel, label=textwrap.fill(outlabel, 14))
     dot_object.add_node(outnode)
@@ -120,11 +128,11 @@ def method_boxplots(all_messages, outdir):
 
 def scatterplot_matrix(data, labels, names, outdir, means, covars, ind2order):
     """Plots a scatterplot matrix of subplots."""
-    with mpl.rc_context(full_box):
+    with mpl.rc_context(scatterplot):
         numdata, numvars = data.shape
 
         colours = [palette(x) for x in labels]
-        fig, axes = plt.subplots(nrows=numvars, ncols=numvars, sharex='col', sharey='row',
+        fig, axes = plt.subplots(figsize=(10, 8.5), nrows=numvars, ncols=numvars, sharex='col', sharey='row',
                                  tight_layout=False)
 
         classes = np.unique(labels)
@@ -142,7 +150,6 @@ def scatterplot_matrix(data, labels, names, outdir, means, covars, ind2order):
                 elif i == j:
                     ax.annotate(textwrap.fill(names[i], 14), (0.5, 0.5), xycoords='axes fraction',
                                 ha='center', va='center',)
-                                #font_properties=mpl.font_manager.FontProperties(family='monospace', size=14))
                 else:
                     for k, mean in enumerate(means):
                         # 95% confidence ellipse
@@ -157,10 +164,12 @@ def scatterplot_matrix(data, labels, names, outdir, means, covars, ind2order):
         for i in range(numvars):
             for j in range(numvars):
                 ax = axes[i, j]
+                #labelfilter(ax)
                 xticker = ax.xaxis.get_major_locator()
                 yticker = ax.yaxis.get_major_locator()
-                xticker.set_params(prune='upper', nbins=7-(numvars+1)/2)
-                yticker.set_params(prune='upper', nbins=7)
+                xticker.set_params(prune='upper')  # , nbins=7-(numvars+1)/2)
+                yticker.set_params(prune='upper')  # , nbins=7)
+
                 if i == 0:
                     ax.xaxis.set_ticks_position('top')
                 elif i == numvars - 1:
@@ -172,9 +181,10 @@ def scatterplot_matrix(data, labels, names, outdir, means, covars, ind2order):
                 if i == j:
                     ax.xaxis.set_visible(False)
                     ax.yaxis.set_visible(False)
+                ax.set_xticklabels(ax.xaxis.get_majorticklocs(), rotation=90)
 
         fig.tight_layout()
-        fig.subplots_adjust(hspace=0.05, wspace=0.05, right=0.8)  # gives space for legend
+        fig.subplots_adjust(hspace=0.05, wspace=0.05, right=0.85)  # gives space for legend
 
         fig.savefig(outdir + '/figures/scatter_matrix.png')
         plt.close(fig)
@@ -182,10 +192,10 @@ def scatterplot_matrix(data, labels, names, outdir, means, covars, ind2order):
 
 def scatterplot_matrix_no_ellipse(data, names, outdir):
     """Plots a scatterplot matrix of subplots."""
-    with mpl.rc_context(full_box):
+    with mpl.rc_context(scatterplot):
         numdata, numvars = data.shape
 
-        fig, axes = plt.subplots(nrows=numvars, ncols=numvars, sharex='col', sharey='row',
+        fig, axes = plt.subplots(figsize=(10, 10), nrows=numvars, ncols=numvars, sharex='col', sharey='row',
                                  tight_layout=False)
 
         # Plot the data.
@@ -196,8 +206,7 @@ def scatterplot_matrix_no_ellipse(data, names, outdir):
                     ax.scatter(data[:, j], data[:, i], c=palette(0), edgecolors='none')
                 elif i == j:
                     ax.annotate(textwrap.fill(names[i], 14), (0.5, 0.5), xycoords='axes fraction',
-                                ha='center', va='center')  # ,
-                                #font_properties=mpl.font_manager.FontProperties(family='monospace', size=14))
+                                ha='center', va='center')
 
         # Adjust display after plotting
         for i in range(numvars):
@@ -205,8 +214,8 @@ def scatterplot_matrix_no_ellipse(data, names, outdir):
                 ax = axes[i, j]
                 xticker = ax.xaxis.get_major_locator()
                 yticker = ax.yaxis.get_major_locator()
-                xticker.set_params(prune='upper', nbins=7-(numvars+1)/2)
-                yticker.set_params(prune='upper', nbins=7)
+                xticker.set_params(prune='upper')  # , nbins=7-(numvars+1)/2)
+                yticker.set_params(prune='upper')  # , nbins=7)
                 if i == 0:
                     ax.xaxis.set_ticks_position('top')
                 elif i == numvars - 1:
@@ -218,7 +227,7 @@ def scatterplot_matrix_no_ellipse(data, names, outdir):
                 if i == j:
                     ax.xaxis.set_visible(False)
                     ax.yaxis.set_visible(False)
-
+                ax.set_xticklabels(ax.xaxis.get_majorticklocs(), rotation=90)
         fig.tight_layout()
         fig.subplots_adjust(hspace=0.05, wspace=0.05)
 
@@ -295,49 +304,52 @@ def lda_graph(train_data, labels, outdir, means, covars, ind2order):
         return scalings, imp.T
 
 
-def reg_graphs(xy_data, i, i_coeff, residuals, partial_residuals, outdir):
+def reg_graphs(xy_data, i, i_coeff, input_index, residuals, partial_residuals, outdir):
     with mpl.rc_context(three_cols):
         input_data = xy_data.arrays['X'][:, [i]]
         output = xy_data.arrays['Y']
 
         fig, ax = plt.subplots()
 
-        savefile = outdir + '/figures/scatter_graph_{}.png'.format(i)
+        savefile = outdir + '/figures/scatter_graph_{}.png'.format(input_index)
         ax.plot(input_data, output, 'o')
-        ax.set_title(textwrap.fill('Output (' + xy_data.labels['Y'][0]
-                                   + ') against '
-                                   + xy_data.labels['X'][i], 30))
-        ax.set_xlabel(textwrap.fill(xy_data.labels['X'][i], 30))
+        ax.set_title(textwrap.fill(xy_data.labels['Y'][0]
+                                   + ' against '
+                                   + xy_data.labels['X'][i], 25))
+        ax.set_xlabel(textwrap.fill(xy_data.labels['X'][i], 25))
         ax.set_ylabel(textwrap.fill(xy_data.labels['Y'][0], 20))
+        labelfilter(ax)
         fig.savefig(savefile)
         ax.clear()
 
-        savefile = outdir + '/figures/partial_residuals_graph_{}.png'.format(i)
+        savefile = outdir + '/figures/partial_residuals_graph_{}.png'.format(input_index)
         ax.plot(input_data, partial_residuals, 'o')
         xdata = np.linspace(min(input_data), max(input_data))
         ax.plot(xdata, i_coeff * xdata)
         ax.set_title(textwrap.fill('Partial residuals against '
-                                   + xy_data.labels['X'][i], 30))
-        ax.set_xlabel(textwrap.fill(xy_data.labels['X'][i], 30))
+                                   + xy_data.labels['X'][i], 25))
+        ax.set_xlabel(textwrap.fill(xy_data.labels['X'][i], 25))
         ax.set_ylabel('Partial residuals')
+        labelfilter(ax)
         fig.savefig(savefile)
         ax.clear()
 
-        savefile = outdir + '/figures/residuals_graph_{}.png'.format(i)
+        savefile = outdir + '/figures/residuals_graph_{}.png'.format(input_index)
         ax.plot(input_data, residuals, 'o')
         ax.set_title(textwrap.fill('Residuals against ' +
-                                   xy_data.labels['X'][i], 30))
-        ax.set_xlabel(textwrap.fill(xy_data.labels['X'][i], 30))
+                                   xy_data.labels['X'][i], 25))
+        ax.set_xlabel(textwrap.fill(xy_data.labels['X'][i], 25))
         ax.set_ylabel('Residuals')
+        labelfilter(ax)
         fig.savefig(savefile)
         plt.close(fig)
 
 
-def histogram(train_data, means, stds, outdir):
+def histogram(train_data, means, stds, input_indices, outdir):
     with mpl.rc_context(three_cols):
-        for i in range(train_data.arrays['X'].shape[1]):
+        for i, index in enumerate(input_indices):
             input_data = train_data.arrays['X'][:, i]
-            n_bins = min(50, max(10, int(train_data.arrays['X'].shape[0])/20))
+            n_bins = min(50, max(10, int(train_data.arrays['X'].shape[0]/20)))
 
             fig, ax = plt.subplots()
             n, bins, patches = ax.hist(input_data, n_bins, normed=True)
@@ -345,8 +357,42 @@ def histogram(train_data, means, stds, outdir):
             x = np.arange(bins[0], bins[-1], (bins[-1] - bins[0])/50.0)
 
             ax.plot(x, rv.pdf(x))
-            ax.set_xlabel(textwrap.fill(train_data.labels['X'][i], 30))
-            ax.set_title(textwrap.fill('Histogram and 1D gaussian model for ' + train_data.labels['X'][i], 30))
-            savefile = outdir + '/figures/histo_graph_{}.png'.format(i)
+            ax.set_xlabel(textwrap.fill(train_data.labels['X'][i], 25))
+            ax.set_title(textwrap.fill('Histogram and 1D gaussian model for ' + train_data.labels['X'][i], 25))
+
+            #ax.margins(x=0.0, y=0, tight=False)
+            #print ax.get_xlim()
+            #labelfilter(ax)
+            xticker = ax.xaxis.get_major_locator()
+            xticker.set_params(prune=None, nbins=3)
+            savefile = outdir + '/figures/histo_graph_{}.png'.format(index)
+            #labels = [item.get_text() for item in ax.get_xticklabels()]
+            #newlabels = ax.xaxis.get_majorticklocs()
+            #labels[0] = str(newlabels[0])
+            #ax.set_xticklabels(labels)
+            #print [plt.getp(x) for x in labels]
             fig.savefig(savefile)
             plt.close(fig)
+
+
+def labelfilter(ax):
+    xlabels = ax.xaxis.get_majorticklocs()
+    if len(xlabels) < 5:
+        return
+    filtlabels = ["" for _ in xlabels]
+    filtlabels[0] = xlabels[0]
+    if len(xlabels) == 5:
+        filtlabels[2] = xlabels[2]
+        filtlabels[-1] = xlabels[-1]
+    elif len(xlabels) == 6:
+        filtlabels[2] = xlabels[2]
+        filtlabels[4] = xlabels[4]
+    else:
+        filtlabels[int((len(filtlabels)-1)/3.0 + 0.5)] = xlabels[int((len(filtlabels)-1)/3.0 + 0.5)]
+        filtlabels[int(((len(filtlabels)-1)*2)/3.0 + 0.5)] = xlabels[int(((len(filtlabels)-1)*2)/3.0 + 0.5)]
+        filtlabels[-1] = xlabels[-1]
+    #print "xlabels", xlabels
+    #print "filtlabels", filtlabels
+    ax.xaxis.set_ticklabels(filtlabels, visible=True)
+    #locs, labels = plt.xticks()
+    #print "locs, labels ", locs, [x.get_text() for x in labels]

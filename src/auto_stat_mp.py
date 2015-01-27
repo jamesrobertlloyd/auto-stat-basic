@@ -14,6 +14,7 @@ from __future__ import division
 import matplotlib as mpl
 mpl.use('Agg')  # Use a non-interactive backend
 import seaborn.apionly as sns
+sns.set(style='whitegrid')
 #pal = ['#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3',
 #       '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd']  # pastels
 #pal = ['#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99',
@@ -21,13 +22,9 @@ import seaborn.apionly as sns
 #pal = 'deep'  # seaborn colours
 pal = ['#1f78b4', '#33a02c', '#e31a1c', '#ff7f00', '#6a3d9a',
        '#a6cee3', '#b2df8a', '#fb9a99', '#fdbf6f', '#cab2d6']  # bright then pastel
-sns.set(style='whitegrid', palette=pal)
-font_size = 12
+sns.set_palette(pal, n_colors=10)
 mpl.rcParams.update({'figure.autolayout': True, 'savefig.dpi': 200, 'axes.formatter.limits': '-3, 3',
-                     'font.family': 'Inconsolata', 'font.size': font_size,
-                     'xtick.labelsize': font_size, 'ytick.labelsize': font_size,
-                     'axes.labelsize': font_size, 'axes.titlesize': font_size, 'legend.fontsize': font_size
-                     })
+                     'font.family': 'Inconsolata'})
 
 # from sklearn.cross_decomposition import CCA
 
@@ -308,8 +305,8 @@ def main():
         data.load_from_file(sys.argv[1])
     else:
         datadir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'data', 'test-lin')
-        # data.load_from_file(os.path.join(datadir, 'simple-03.csv'))
-        data.load_from_file(os.path.join(datadir, 'thyroid.csv'))
+        data.load_from_file(os.path.join(datadir, 'simple-03.csv'))
+        # data.load_from_file(os.path.join(datadir, 'uci-compressive-strength.csv'))
         # data.load_from_file(os.path.join(datadir, 'iris.csv'))
         # data.load_from_file(os.path.join(datadir, 'stovesmoke-no-outliers.csv'))
     # Setup up manager and communication

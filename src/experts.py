@@ -47,6 +47,7 @@ class Independent1dGaussians(object):
         self.stds = stds
         self.shortdescrip = "Independent 1D gaussian"
         self.data_size = None
+        self.input_indices = None
         self.report_id = 0  # makes generating report easier - each distribution type should have unique id
 
     def conditional_sample(self, data):
@@ -62,7 +63,7 @@ class Independent1dGaussians(object):
         return llh
 
     def make_graphs(self, train_data, outdir):
-        gr.histogram(train_data, self.means, self.stds, outdir)
+        gr.histogram(train_data, self.means, self.stds, self.input_indices, outdir)
         if train_data.arrays['X'].shape[1] < 6 and self.means.shape[0] > 1:
             gr.scatterplot_matrix(train_data.arrays['X'], [0], train_data.labels['X'], outdir,
                                   [self.means], np.array([self.stds]) * np.array([self.stds]), [0])
@@ -162,6 +163,7 @@ class SKLearnModelPlusGaussian(object):
         self.corr = []
         self.partcorr = []
         self.data_size = None
+        self.input_indices = None
 
     def conditional_mean(self, data):
         return self.model.predict(data.arrays['X']).ravel()
@@ -180,12 +182,12 @@ class SKLearnModelPlusGaussian(object):
                                        np.ones((train_data.arrays['Y'].shape[0], 1)) * self.model.intercept_)
                                 )
 
-        for i in range(len(train_data.labels['X'])):
+        for i, index in enumerate(self.input_indices):
             partial_residuals = np.add(residuals, self.model.coef_[i] * train_data.arrays['X'][:, [i]])
             self.corr.append(stats.pearsonr(train_data.arrays['X'][:, [i]], train_data.arrays['Y'])[0])
             self.partcorr.append(stats.pearsonr(train_data.arrays['X'][:, [i]], partial_residuals)[0])
 
-            gr.reg_graphs(train_data, i, self.model.coef_[i], residuals, partial_residuals, outdir)
+            gr.reg_graphs(train_data, i, self.model.coef_[i], index, residuals, partial_residuals, outdir)
 
 
 class RegressionDAG(object):
@@ -197,8 +199,11 @@ class RegressionDAG(object):
         self.input_indices = input_indices
         self.input_distribution = input_distribution
         self.output_distribution = output_distribution
+        self.input_distribution.input_indices = input_indices
+        self.output_distribution.input_indices = input_indices
         self.shortdescrip = "Linear Model"
         self.report_id = 4
+        self.sorted_inputs = [{'index': x} for x in input_indices]  # useful for report
 
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
@@ -259,6 +264,16 @@ class RegressionDAG(object):
 
         if train_data.arrays['X'].shape[1] < 6:
             gr.scatterplot_matrix_no_ellipse(train_data.arrays['X'], train_data.labels['X'], outdir)
+
+        for i, indict in enumerate(sorted(self.sorted_inputs, key=lambda x: x['index'])):
+            indict.update({'mean': self.input_distribution.means[i],
+                           'std': self.input_distribution.stds[i],
+                           'corr': self.output_distribution.corr[i],
+                           'partcorr': self.output_distribution.partcorr[i],
+                           'coeff': self.output_distribution.model.coef_[i],
+                           'label': train_data.labels['X'][indict['index']]})
+
+        self.sorted_inputs.sort(key=lambda x: abs(x['partcorr']), reverse=True)
 
 
 ##############################################

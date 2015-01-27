@@ -70,24 +70,26 @@ def js_graphs(means, covars, weights, outdir, data, labels, columns, ind2order):
     griddata = np.zeros((n_features, n_features))
     for jsd, i, j in all_jsd:
         griddata[i, j] = griddata[j, i] = jsd
-    fig, ax = plt.subplots()
-    cmap = sns.light_palette(color=gr.palette(0), as_cmap=True)
-    heatmap = ax.pcolor(griddata, cmap=cmap, vmin=0, vmax=1)
-    fig.colorbar(heatmap)
 
-    # put the major ticks at the middle of each cell
-    ax.set_xticks(np.arange(n_features)+0.5, minor=False)
-    ax.set_yticks(np.arange(n_features)+0.5, minor=False)
+    with mpl.rc_context(gr.scatterplot):
+        fig, ax = plt.subplots(figsize=(10, 6))
+        cmap = sns.light_palette(color=gr.palette(0), as_cmap=True)
+        heatmap = ax.pcolor(griddata, cmap=cmap, vmin=0, vmax=1)
+        fig.colorbar(heatmap)
 
-    ax.invert_yaxis()
-    ax.xaxis.tick_top()
+        # put the major ticks at the middle of each cell
+        ax.set_xticks(np.arange(n_features)+0.5, minor=False)
+        ax.set_yticks(np.arange(n_features)+0.5, minor=False)
 
-    wrapped_cols = [textwrap.fill(x, 10) for x in columns]
-    ax.set_xticklabels(wrapped_cols, minor=False)
-    ax.set_yticklabels(columns, minor=False)
-    savefile = outdir + '/figures/js_heatmap.png'
-    fig.savefig(savefile)
-    plt.close(fig)
+        ax.invert_yaxis()
+        ax.xaxis.tick_top()
+
+        wrapped_cols = [textwrap.fill(x, 10) for x in columns]
+        ax.set_xticklabels(wrapped_cols, minor=False)
+        ax.set_yticklabels(columns, minor=False)
+        savefile = outdir + '/figures/js_heatmap.png'
+        fig.savefig(savefile)
+        plt.close(fig)
 
     colours = [gr.palette(x) for x in labels]
     with mpl.rc_context(gr.two_cols):
