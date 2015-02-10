@@ -10,11 +10,41 @@ import make_graphs as gr
 import seaborn.apionly as sns
 
 
+def calc_jsd(means, covars, weights, mins, maxes):
+    rv_list = [multivariate_normal(mean=mean, cov=cov) for mean, cov in zip(means, covars)]
+
+    # find sum of entropy * weight over all gaussians
+    # N.B. scipy uses entropy with base e
+    term2 = np.dot([rv.entropy() for rv in rv_list], weights.T)
+
+    def sumpdf(x, y):  # integrand for differential entropy integral
+        fofx = np.dot([rv2.pdf([x, y]) for rv2 in rv_list], weights.T)
+        if fofx == 0:  # hack to avoid log(0)
+            return 0
+        else:
+            return -1 * fofx * np.log(fofx)
+
+    # limits for integral
+    # integrate to get the differential entropy of the set of gaussians
+    epsabs = 1e-1
+    epsrel = 1e-1
+    term1 = dblquad(sumpdf, mins[1], maxes[1], lambda x: mins[0], lambda x: maxes[0],
+                    epsabs=epsabs, epsrel=epsrel
+                    )
+
+    jsd = (term1[0] - term2) * np.log(2)  # convert to log2 from ln
+    if jsd < 0:
+        jsd = 0
+    return jsd
+
+
 def best_jsd(means, covars, weights):
     """Go through all the axis pairs and return a list of the JS divergences"""
     # limits are at 95% - speeds up integral
-    maxes = np.amax(means + np.sqrt(covars * 5.991), axis=0)
-    mins = np.amin(means - np.sqrt(covars * 5.991), axis=0)
+    error90 = 4.605
+    error95 = 5.991
+    maxes = np.amax(means + np.sqrt(covars * error90), axis=0)
+    mins = np.amin(means - np.sqrt(covars * error90), axis=0)
     jsds = []
     n_clusters, n_features = means.shape
     axes = np.identity(n_features)
@@ -23,48 +53,26 @@ def best_jsd(means, covars, weights):
     for j in range(len(means[0])):
         for i in range(j):
             ax = axes[:, [i, j]]
+            means_s = np.dot(means, ax)  # shape is (n_clusters, n_scale)
+            n_clusters, n_features = covars.shape
+            covars_s = np.dot(ax.T, np.reshape(covars, (n_clusters, n_features, 1)) * ax)
+                # shape is (n_scale, n_clusters, n_scale)
+            covars_s = np.swapaxes(covars_s, 0, 1)  # shape is (n_clusters, n_scale, n_scale)
 
-            # create a list of scipy 2D gaussian distributions
-            rv_list = []
-            for mean, cov in zip(means, covars):
-                mean = np.dot(mean, ax)
-                cov = np.dot(cov, ax)
-                # cov = np.diagflat(cov) # making covariance 2D appears to be unnecessary
-                rv_list.append(multivariate_normal(mean=mean, cov=cov))
-
-                # find sum of entropy * weight over all gaussians
-                # N.B. scipy uses entropy with base e
-            term2 = np.dot([rv.entropy() for rv in rv_list], weights.T)
-            #print [rv.entropy() for rv in rv_list]
-
-            def sumpdf(x, y):  # integrand for differential entropy integral
-                fofx = np.dot([rv2.pdf([x, y]) for rv2 in rv_list], weights.T)
-                if fofx == 0:  # hack to avoid log(0)
-                    return 0
-                else:
-                    return -1 * fofx * np.log(fofx)
-
-            # limits for integral
-            axmin = np.dot(mins, ax)
-            axmax = np.dot(maxes, ax)
-            # integrate to get the differential entropy of the set of gaussians
-            # term1_full = dblquad(sumpdf, -np.inf, np.inf, lambda x: -np.inf, lambda x: np.inf)
-            term1 = dblquad(sumpdf, axmin[1], axmax[1], lambda x: axmin[0], lambda x: axmax[0])
-
-            jsd = (term1[0] - term2) * np.log(2)  # convert to log2 from ln
-            if jsd < 0:
-                jsd = 0
+            jsd = calc_jsd(means_s, covars_s, weights, mins[[i, j]], maxes[[i, j]])
             jsds.append((jsd / np.log2(n_clusters), i, j))  # scale by number of clusters
-            # print (i, j),  jsd, term1[0], term1_full[0], term2
 
     jsds.sort(reverse=True)
     # print "JSDs :", jsds
     return jsds
 
 
-def js_graphs(means, covars, weights, outdir, data, labels, columns, ind2order):
+def js_graphs(data, columns, labels, outdir, means, covars, weights):
     """Draw the three best projections as found by JS divergence"""
     all_jsd = best_jsd(means, covars, weights)
+
+    if len(all_jsd) < 6:
+        return all_jsd
 
     n_clusters, n_features = means.shape
     griddata = np.zeros((n_features, n_features))
@@ -94,23 +102,26 @@ def js_graphs(means, covars, weights, outdir, data, labels, columns, ind2order):
     colours = [gr.palette(x) for x in labels]
     with mpl.rc_context(gr.two_cols):
         fig, ax = plt.subplots()
-        good_projs = [x for x in all_jsd if x[0] > 0.4]
+        # good_projs = [x for x in all_jsd if x[0] > 0.1]
+        good_projs = all_jsd[0:4]
         for i, proj in enumerate(good_projs):
             ax.clear()
             x = proj[1]
             y = proj[2]
 
+            ax.set_title("JSD = {0:.2g}".format(proj[0]))
             ax.set_xlabel(textwrap.fill(columns[x], 45))
             ax.set_ylabel(textwrap.fill(columns[y], 30))
-            ax.scatter(data[:, x], data[:, y], c=colours)
+            ax.scatter(data[:, x], data[:, y], c=colours, edgecolor='none', zorder=2)
 
             for k, mean in enumerate(means):
                 ell = mpl.patches.Ellipse((mean[x], mean[y]), 2 * np.sqrt(covars[k][x] * 5.991),
                                           2 * np.sqrt(covars[k][y] * 5.991),
-                                          color=gr.palette(ind2order[k]), alpha=0.5)
+                                          color=gr.palette(k), alpha=0.5)
                 ax.add_artist(ell)
                 ell.set_clip_box(ax.bbox)
 
+            gr.labelformatting(fig)
             savefile = outdir + '/figures/js_scatter_{}.png'.format(i)
             fig.savefig(savefile)
 

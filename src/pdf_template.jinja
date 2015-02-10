@@ -118,11 +118,11 @@ The distribution of scores for each method is shown in Figure \ref{fig:learning-
 
 The ((( topdist.shortdescrip ))) method has the highest median cross-validated log predictive density.
 ((* if inddist and topdist != inddist *))((= then say how much better it is than independent gaussians =))
-This is ((( '%.2g' % (topdist.avscore - inddist.avscore) ))) units better than just assuming that all the variables are independent.
-PLACEHOLDER: Interpret this score!
+This is ((( '%.2g' % (topdist.avscore - inddist.avscore) ))) nats better than modelling each variable as an independent gaussian distribution.
+PLACEHOLDER1 (Interpret this score!).
 ((* endif *))
 ((* if topdists|length > 1 *))((= then talk about how it compares with other models =))
-PLACEHOLDER TEXT:  ((* if topdist.scores[0] - (topdist.scores[-1] - topdist.scores[0]) > topdists[1].scores[-1] *))
+PLACEHOLDER2 (how much better is it than the next best): ((* if topdist.scores[0] - (topdist.scores[-1] - topdist.scores[0]) > topdists[1].scores[-1] *))
 This method is lots better than the next best model.
 ((* elif topdist.scores[0] > topdists[1].scores[-1] *))
 This method is a fair bit better than the next best model.
@@ -170,8 +170,9 @@ The distributions are in Figure \ref{fig:ind-hist}.
 Variable & Distribution & Parameters\\
 \hline
 ((* for input in topdist.sorted_inputs *))
-((( input.label|escape_tex ))) & ((( topdist.input_distribution.shortdescrip ))) &
-mean=((( '%.2g' % input.mean ))), std=((( '%.2g' % input.std ))) \\
+((( input.label|escape_tex ))) & ((( topdist.input_distribution.shortdescrip ))) & ((* if topdist.input_distribution.report_id == 0 *))
+mean=((( '%.2g' % input.mean ))), std=((( '%.2g' % input.std ))) \\((* elif topdist.input_distribution.report_id ==1 *))
+left=((( '%.2g' % input.left ))), right=((( '%.2g' % input.right ))) \\((* endif *))
 ((* endfor *))
 \hline
 \end{tabular}
@@ -225,16 +226,17 @@ Increase ((* else *))
 Decrease ((* endif *))
 with ((( input.label|escape_tex )))}
 The correlation between (((summary[topdist.output_index].label|escape_tex ))) and ((( input.label|escape_tex ))) is ((( '%.2f' % input.corr )))
- (see figure \ref{fig:train_((( input.label )))}a).
+ (see figure \ref{fig:train_((( loop.index0 )))}a).
 ((* if (input.partcorr - input.corr)|abs > 0.3 *))
-Accounting for the rest of the model, this changes substantially to a part correlation of ((( '%.2f' % input.partcorr ))) (see figure \ref{fig:train_((( input.label )))}b).
+Accounting for the rest of the model, this changes substantially to a part correlation of ((( '%.2f' % input.partcorr )))
 ((* elif (input.partcorr - input.corr)|abs > 0.1 *))
-Accounting for the rest of the model, this changes moderately to a part correlation of ((( '%.2f' % input.partcorr ))) (see figure \ref{fig:train_((( input.label )))}b).
+Accounting for the rest of the model, this changes moderately to a part correlation of ((( '%.2f' % input.partcorr )))
 ((* elif (input.partcorr - input.corr)|abs > 0.01 *))
-Accounting for the rest of the model, this changes slightly to a part correlation of ((( '%.2f' % input.partcorr ))) (see figure \ref{fig:train_((( input.label )))}b).
+Accounting for the rest of the model, this changes slightly to a part correlation of ((( '%.2f' % input.partcorr )))
 ((* else *))
-This correlation does not change when accounting for the rest of the model (see figure \ref{fig:train_((( input.label )))}b).
+This correlation does not change when accounting for the rest of the model
 ((* endif *))
+(see figure \ref{fig:train_((( loop.index0 )))}b).
 
 \begin{figure}[H]
 \centering
@@ -248,7 +250,7 @@ a) & b) & c)\\
 a) (((summary[topdist.output_index].label|escape_tex ))) plotted against ((( input.label|escape_tex ))).
 b) Partial residuals ((( '(' + summary[topdist.output_index].label|escape_tex ))) minus the rest of the model) plotted against ((( input.label|escape_tex ))) with fit for this component.
 c) Residuals ((( '(' + summary[topdist.output_index].label|escape_tex ))) minus the full model) against ((( input.label|escape_tex ))).}
-\label{fig:train_((( input.label )))}
+\label{fig:train_((( loop.index0 )))}
 \end{figure}
 
 ((* endfor *))
@@ -274,8 +276,8 @@ The sizes of the clusters are shown in Table \ref{tab:cluster-summary}.
 \hline
 Cluster number & Size \\
 \hline
-((* for item in topdist.clusterorder2ind *))
-((( loop.index0 ))) & ((( topdist.clustersizes[item] ))) \\
+((* for cluster in topdist.clusterdicts *))
+((( cluster.rank ))) & ((( cluster.count ))) \\
 ((* endfor *))
 \hline
 \end{tabular}
@@ -310,38 +312,48 @@ In order, these are:
 However, none of the pairs are good.
 ((* endfor *))
 
-A heatmap of JSD is shown in Figure \ref{fig:js-heatmap}. Darker colours indicate that a pair of variables separate the clusters more clearly.
+((* if topdist.n_cols > 3 *))
+A heatmap of JSD is shown in Figure \ref{fig:js-heatmap}. Darker coloured squares indicate that a given pair of variables
+separate the clusters more clearly. A dark row or column may indicate a variable that always separates the clusters well.
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{\figdir/js_heatmap.png}
 \caption{Heatmap of JSD for all the pairs of variables}
 \label{fig:js-heatmap}
 \end{figure}
+((* endif *))
 
-((* for i in topdist.jsds if i[0] > 0.4 *))
+((* if topdist.n_cols > 3 *))
+((* for i in topdist.jsds[0:4] *))
 ((* if loop.first *))
-The projections that separate the clusters well are shown in Figure \ref{fig:js-goodproj}.
+The four projections that best separate the clusters are shown in Figure \ref{fig:js-goodproj}.
 \begin{center}
 \captionsetup{type=figure}
 \begin{longtable}{cc}
 ((* endif *))
 \includegraphics[width=0.5\textwidth]{\figdir/js_scatter_((( loop.index0 ))).png} ((( loop.cycle('&', '\\\\') )))
 ((* if loop.last *))
-((* if loop.length % 2 == 1 *))
-\\
-((* endif *))
 \end{longtable}
-\captionof{figure}{Good projections according to JSD}
+\captionof{figure}{Best projections according to JSD}
 \label{fig:js-goodproj}
 \addtocounter{table}{-1}
 \end{center}
 ((* endif *))
 ((* endfor *))
+((* endif *))
 
+((* if topdist.n_cols > 2 *))
 Linear Discriminant Analysis (LDA) has been used to find a linear combination of features which separates the classes.
 LDA tries to reduce the dimensionality of the data while preserving as much of the class discriminatory information as possible.
-((* if topdist.clustersizes|length > 2 *))
-A projection of the clusters onto the first two LDA combinations is shown in Figure \ref{fig:lda-projection}.
+((* if topdist.clusterdicts|length > 2 *))
+A projection of the clusters onto the first two LDA combinations is shown in Figure \ref{fig:lda-projection}. The Jensen-Shannon divergence of this
+projection is ((( '%.2f' % topdist.lda_jsd ))). The coefficient for each variable in the two LDA combinations and measure of the importance of each variable are
+shown in tables \ref{tab:lda-coeff1} and \ref{tab:lda-coeff2}. For important variables the importance will be close to 1. The importance here is
+the fraction of the LDA combination variance explained by this variable. Given original variables $\mathbf{x} = (x_1, x_2, ... x_i)$ and an LDA combination
+$\mathbf{y} = \mathbf{a} \mathbf{x}$ the importance of $x_i$ is:
+\begin{equation}
+I = 1 - \frac{Var(y - a_i x_i)}{Var(y)}
+\end{equation}
 ((* else *))
 A projection of the clusters onto this combination is shown in Figure \ref{fig:lda-projection}.
 ((* endif *))
@@ -358,8 +370,8 @@ A projection of the clusters onto this combination is shown in Figure \ref{fig:l
 \hline
 Variable & Coefficient & Importance \\
 \hline
-((* for item in topdist.ldas *))
-((( summary[loop.index0].label|escape_tex ))) & ((( '%.2g' % item[0] ))) & ((( '%.2f' % topdist.lda_import[loop.index0][0] )))\\
+((* for lda in topdist.ldas *))
+((( summary[loop.index0].label|escape_tex ))) & ((( '%.2g' % lda.coeff[0] ))) & ((( '%.2f' % lda.importance[0] )))\\
 ((* endfor *))
 \hline
 \end{tabular}
@@ -367,21 +379,22 @@ Variable & Coefficient & Importance \\
 \label{tab:lda-coeff1}
 \end{center}
 
-((* if topdist.clustersizes|length > 2 *))
+((* if topdist.clusterdicts|length > 2 *))
 \begin{center}
 \captionsetup{type=table}
 \begin{tabular}{|l|rr|}
 \hline
 Variable & Coefficient & Importance \\
 \hline
-((* for item in topdist.ldas *))
-((( summary[loop.index0].label|escape_tex ))) & ((( '%.2g' % item[1] ))) & ((( '%.2f' % topdist.lda_import[loop.index0][1] )))\\
+((* for lda in topdist.ldas *))
+((( summary[loop.index0].label|escape_tex ))) & ((( '%.2g' % lda.coeff[1] ))) & ((( '%.2f' % lda.importance[1] )))\\
 ((* endfor *))
 \hline
 \end{tabular}
 \captionof{table}{Coefficients of second LDA combination}
 \label{tab:lda-coeff2}
 \end{center}
+((* endif *))
 ((* endif *))
 
 \section{Model criticism}

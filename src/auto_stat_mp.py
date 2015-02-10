@@ -23,7 +23,7 @@ sns.set(style='whitegrid')
 pal = ['#1f78b4', '#33a02c', '#e31a1c', '#ff7f00', '#6a3d9a',
        '#a6cee3', '#b2df8a', '#fb9a99', '#fdbf6f', '#cab2d6']  # bright then pastel
 sns.set_palette(pal, n_colors=10)
-mpl.rcParams.update({'figure.autolayout': True, 'savefig.dpi': 200, 'axes.formatter.limits': '-3, 3',
+mpl.rcParams.update({'figure.autolayout': True, 'savefig.dpi': 200,
                      'font.family': 'Inconsolata'})
 
 # from sklearn.cross_decomposition import CCA
@@ -122,50 +122,15 @@ class Manager(Agent):
         self.test_indices = random_perm[int(np.floor(n_data * proportion_train)):]
         train_data, test_data = self.data.subsets([self.train_indices, self.test_indices])
 
-        # test_data = data_sets[1]
         # Initialise list of experts
-        # self.experts = [DummyModel(number=5, max_actions=10),
-        #                 DummyModel(number=7, max_actions=5)]
-        # self.experts = [experts.DataDoublingExpert(lambda:
-        #                                            experts.CrossValidationExpert(experts.SKLearnRandomForestReg))]
-        # self.experts = [experts.DataDoublingExpert(lambda: experts.CrossValidationExpert(experts.SKLassoReg))]
-        # self.experts = [experts.DataDoublingExpert(lambda: experts.SamplesCrossValidationExpert(experts.SKLinearModel)),
-        #                 experts.DataDoublingExpert(lambda: experts.SamplesCrossValidationExpert(experts.SKLassoReg)),
-        #                 experts.DataDoublingExpert(lambda:
-        #                                            experts.SamplesCrossValidationExpert(experts.SKLearnRandomForestReg))]
         # TODO - revisit this heuristic for lengthscale selection - especially if data not continuous
         # scoring_expert = experts.MMDScorer(lengthscales=np.std(self.data.arrays['X'], 0))
         scoring_expert = experts.LLHScorer()
         # self.experts = [experts.DataDoublingExpert(lambda:
         #                                            experts.SamplesCrossValidationExpert(
-        #                                                experts.IndependentGaussianLearner,
-        #                                                scoring_expert)),
-        #                 experts.DataDoublingExpert(lambda:
-        #                                            experts.SamplesCrossValidationExpert(
-        #                                                experts.MoGLearner,
-        #                                                scoring_expert)),
-        #                 experts.DataDoublingExpert(lambda:
-        #                                            experts.SamplesCrossValidationExpert(
-        #                                                lambda:
-        #                                                experts.RegressionLearner(experts.IndependentGaussianLearner,
-        #                                                                          experts.SKLinearModel),
-        #                                                scoring_expert)),
-        #                 experts.DataDoublingExpert(lambda:
-        #                                            experts.SamplesCrossValidationExpert(
-        #                                                lambda:
-        #                                                experts.RegressionLearner(experts.IndependentGaussianLearner,
-        #                                                                          experts.SKLASSO),
-        #                                                scoring_expert)),
-        #                 experts.DataDoublingExpert(lambda:
-        #                                            experts.SamplesCrossValidationExpert(
-        #                                                lambda: experts.RegressionLearner(experts.MoGLearner,
-        #                                                                                  experts.SKLinearModel),
-        #                                                scoring_expert)),
-        #                 experts.DataDoublingExpert(lambda:
-        #                                            experts.SamplesCrossValidationExpert(
-        #                                                lambda: experts.RegressionLearner(experts.MoGLearner,
-        #                                                                                  experts.SKLASSO),
-        #                                                scoring_expert))]
+        #                                                experts.FALearner,
+        #                                                scoring_expert)
+        #                                            ),
         self.experts = [experts.DataDoublingExpert(lambda:
                                                    experts.SamplesCrossValidationExpert(
                                                        experts.MoGLearner,
@@ -181,10 +146,16 @@ class Manager(Agent):
                         experts.DataDoublingExpert(lambda:
                                                    experts.SamplesCrossValidationExpert(
                                                        lambda:
-                                                       experts.RegressionLearner(experts.IndependentGaussianLearner,
+                                                       experts.RegressionLearner(experts.IndependentUniformLearner,
                                                                                  experts.SKLASSO),
                                                        scoring_expert)
                                                    ),
+                        experts.DataDoublingExpert(lambda:
+                                                   experts.SamplesCrossValidationExpert(
+                                                       lambda:
+                                                       experts.RegressionLearner(experts.MoGLearner,
+                                                                                 experts.SKLASSO),
+                                                       scoring_expert)),
                         experts.DataDoublingExpert(lambda:
                                                    experts.SamplesCrossValidationExpert(
                                                        experts.IndependentGaussianLearner,
@@ -244,8 +215,9 @@ class Manager(Agent):
                 topdist = indgaussdist  # use independent model if other isn't better
 
             # make graphs
-            topdist.make_graphs(self.data.subsets([self.train_indices, self.test_indices])[0],
-                                self.temp_dir)
+            if not topdist.graphs_made:
+                topdist.make_graphs(self.data.subsets([self.train_indices, self.test_indices])[0],
+                                    self.temp_dir)
             if len(self.all_dist_msgs) / float(len(topdists)) > 1:
                 gr.learning_curve(self.all_dist_msgs, senders, self.temp_dir)  # make the learning curve
             else:
@@ -305,7 +277,7 @@ def main():
         data.load_from_file(sys.argv[1])
     else:
         datadir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'data', 'test-lin')
-        data.load_from_file(os.path.join(datadir, 'simple-03.csv'))
+        data.load_from_file(os.path.join(datadir, 'simple-01_mac.csv'))
         # data.load_from_file(os.path.join(datadir, 'uci-compressive-strength.csv'))
         # data.load_from_file(os.path.join(datadir, 'iris.csv'))
         # data.load_from_file(os.path.join(datadir, 'stovesmoke-no-outliers.csv'))

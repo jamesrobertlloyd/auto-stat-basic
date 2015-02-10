@@ -43,12 +43,14 @@ class Independent1dGaussians(object):
     """Independent Gaussians"""
 
     def __init__(self, means, stds):
+        self.graphs_made = False  # records whether graphs have been made for this distribution
         self.means = means
         self.stds = stds
-        self.shortdescrip = "Independent 1D gaussian"
+        self.shortdescrip = "Independent gaussians"
         self.data_size = None
-        self.input_indices = None
+        self.input_indices = range(len(means))  # will be overwritten if this is part of bigger distribution
         self.report_id = 0  # makes generating report easier - each distribution type should have unique id
+        self.input_dicts = None
 
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
@@ -63,10 +65,16 @@ class Independent1dGaussians(object):
         return llh
 
     def make_graphs(self, train_data, outdir):
-        gr.histogram(train_data, self.means, self.stds, self.input_indices, outdir)
-        if train_data.arrays['X'].shape[1] < 6 and self.means.shape[0] > 1:
-            gr.scatterplot_matrix(train_data.arrays['X'], [0], train_data.labels['X'], outdir,
-                                  [self.means], np.array([self.stds]) * np.array([self.stds]), [0])
+        gr.histogram(train_data, self.means, self.stds, self.input_indices, outdir, 'gaussian')
+        if train_data.arrays['X'].shape[1] < 6 and len(self.input_indices) > 1:
+            gr.scatterplot_matrix(train_data.arrays['X'], train_data.labels['X'], [0], outdir,
+                                  [self.means], np.array([self.stds]) * np.array([self.stds]))
+
+        self.input_dicts = [{'index': x} for x in self.input_indices]
+        for i in range(len(self.means)):
+            self.input_dicts[i].update({'mean': self.means[i],
+                                        'std': self.stds[i]})
+        self.graphs_made = True
 
 
 class Independent1dUniforms(object):
@@ -74,11 +82,14 @@ class Independent1dUniforms(object):
     """Independent uniforms"""
 
     def __init__(self, lefts, rights):
+        self.graphs_made = False
         self.lefts = lefts
         self.rights = rights
         self.shortdescrip = "Independent uniforms"
         self.report_id = 1
         self.data_size = None
+        self.input_indices = range(len(lefts))  # will be overwritten if this is part of bigger distribution
+        self.input_dicts = None
 
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
@@ -98,24 +109,32 @@ class Independent1dUniforms(object):
                                         scale=self.rights[j] - self.lefts[j]).logpdf(data.arrays['X'][:, j]))
         return llh
 
+    def make_graphs(self, train_data, outdir):
+        gr.histogram(train_data, self.lefts, self.rights, self.input_indices, outdir, 'uniform')
+        self.input_dicts = [{'index': x} for x in self.input_indices]
+        for i in range(len(self.input_indices)):
+            self.input_dicts[i].update({'left': self.lefts[i],
+                                        'right': self.rights[i]})
+        self.graphs_made = True
+
 
 class MoG(object):
     """Mixture of Gaussians"""
 
     def __init__(self, weights, means, stds, sklearn_mog):
+        self.graphs_made = False
         # print weights.size
         self.weights = weights
+        self.n_cols = means.shape[1]
         self.means = means
         self.stds = stds
         self.sklearn_mog = sklearn_mog
         self.shortdescrip = "Mixture of Gaussians"
         self.report_id = 2
-        self.clustersizes = {}
-        self.clusterind2order = []  # converts sklearn labels to ones ordered by size
-        self.clusterorder2ind = []
+        self.clusterdicts = None
         self.data_size = None
         self.ldas = None
-        self.lda_import = None
+        self.lda_jsd = None
         self.jsds = []
 
     def conditional_sample(self, data):
@@ -133,29 +152,38 @@ class MoG(object):
         return np.sum(self.sklearn_mog.score(data.arrays['X']))
 
     def make_graphs(self, train_data, outdir):
-        clusterlabels_ind = np.array([self.sklearn_mog.predict(train_data.arrays['X'])])[0]
-        self.clustersizes = Counter(clusterlabels_ind)
-        self.clusterorder2ind = [ind[0] for ind in self.clustersizes.most_common()]
-        self.clusterind2order = [-1 for _ in range(len(self.weights))]
-        for order, ind in enumerate(self.clusterorder2ind):
-            self.clusterind2order[ind] = order
-        clusterlabels_ord = np.array([self.clusterind2order[x] for x in clusterlabels_ind])
-        if train_data.arrays['X'].shape[1] < 6:
-            gr.scatterplot_matrix(train_data.arrays['X'], clusterlabels_ord.T, train_data.labels['X'], outdir,
-                                  self.sklearn_mog.means_, self.sklearn_mog.covars_, self.clusterind2order)
+        clusterlabels = np.array([self.sklearn_mog.predict(train_data.arrays['X'])])[0]
+        clustercount = Counter(clusterlabels)
+        self.clusterdicts = [{'index': y[0], 'count': y[1], 'rank': x}
+                             for x, y in enumerate(clustercount.most_common())]
 
-        self.ldas, self.lda_import = gr.lda_graph(train_data.arrays['X'], clusterlabels_ord, outdir,
-                                                  self.sklearn_mog.means_, self.sklearn_mog.covars_,
-                                                  self.clusterind2order)
-        self.jsds = js.js_graphs(self.sklearn_mog.means_, self.sklearn_mog.covars_, self.sklearn_mog.weights_,
-                                 outdir, train_data.arrays['X'], clusterlabels_ord, train_data.labels['X'],
-                                 self.clusterind2order)
+        sorted_inds = [x['index'] for x in self.clusterdicts]
+        ind2rank = [x['rank'] for x in sorted(self.clusterdicts, key=lambda a: a['index'])]
+
+        clusterlabels = np.array([ind2rank[x] for x in clusterlabels])
+        means = self.sklearn_mog.means_[[sorted_inds]]
+        covars = self.sklearn_mog.covars_[[sorted_inds]]
+        weights = self.sklearn_mog.weights_[[sorted_inds]]
+
+        if train_data.arrays['X'].shape[1] < 6:
+            gr.scatterplot_matrix(train_data.arrays['X'], train_data.labels['X'], clusterlabels.T,
+                                  outdir, means, covars)
+
+        self.ldas, self.lda_jsd = gr.lda_graph(train_data.arrays['X'], clusterlabels, outdir,
+                                               means, covars, weights)
+
+        self.jsds = js.js_graphs(train_data.arrays['X'], train_data.labels['X'], clusterlabels,
+                                 outdir, means, covars, weights)
+
+        self.clusterdicts.sort(key=lambda a: a['rank'])
+        self.graphs_made = True
 
 
 class SKLearnModelPlusGaussian(object):
     """Conditional distribution based on sklearn model with iid Gaussian noise"""
 
     def __init__(self, model, sd):
+        self.graphs_made = False
         self.model = model
         self.sd = sd
         self.shortdescrip = "Shortdescrip not implemented"
@@ -164,6 +192,7 @@ class SKLearnModelPlusGaussian(object):
         self.partcorr = []
         self.data_size = None
         self.input_indices = None
+        self.input_dicts = None
 
     def conditional_mean(self, data):
         return self.model.predict(data.arrays['X']).ravel()
@@ -182,18 +211,22 @@ class SKLearnModelPlusGaussian(object):
                                        np.ones((train_data.arrays['Y'].shape[0], 1)) * self.model.intercept_)
                                 )
 
+        self.input_dicts = [{'index': x} for x in self.input_indices]
         for i, index in enumerate(self.input_indices):
             partial_residuals = np.add(residuals, self.model.coef_[i] * train_data.arrays['X'][:, [i]])
-            self.corr.append(stats.pearsonr(train_data.arrays['X'][:, [i]], train_data.arrays['Y'])[0])
-            self.partcorr.append(stats.pearsonr(train_data.arrays['X'][:, [i]], partial_residuals)[0])
+            self.input_dicts[i]['corr'] = stats.pearsonr(train_data.arrays['X'][:, [i]], train_data.arrays['Y'])[0]
+            self.input_dicts[i]['partcorr'] = stats.pearsonr(train_data.arrays['X'][:, [i]], partial_residuals)[0]
+            self.input_dicts[i]['coeff'] = self.model.coef_[i]
 
             gr.reg_graphs(train_data, i, self.model.coef_[i], index, residuals, partial_residuals, outdir)
+        self.graphs_made = True
 
 
 class RegressionDAG(object):
     """Output caused by inputs"""
 
     def __init__(self, output_index, input_indices, input_distribution, output_distribution):
+        self.graphs_made = False
         # print weights.size
         self.output_index = output_index
         self.input_indices = input_indices
@@ -203,7 +236,7 @@ class RegressionDAG(object):
         self.output_distribution.input_indices = input_indices
         self.shortdescrip = "Linear Model"
         self.report_id = 4
-        self.sorted_inputs = [{'index': x} for x in input_indices]  # useful for report
+        self.sorted_inputs = None  # useful for report
 
     def conditional_sample(self, data):
         assert isinstance(data, XSeqDataSet)
@@ -265,15 +298,43 @@ class RegressionDAG(object):
         if train_data.arrays['X'].shape[1] < 6:
             gr.scatterplot_matrix_no_ellipse(train_data.arrays['X'], train_data.labels['X'], outdir)
 
-        for i, indict in enumerate(sorted(self.sorted_inputs, key=lambda x: x['index'])):
-            indict.update({'mean': self.input_distribution.means[i],
-                           'std': self.input_distribution.stds[i],
-                           'corr': self.output_distribution.corr[i],
-                           'partcorr': self.output_distribution.partcorr[i],
-                           'coeff': self.output_distribution.model.coef_[i],
-                           'label': train_data.labels['X'][indict['index']]})
+        templist = [None] * (max(self.input_indices) + 1)
+        for i, j in enumerate(self.input_indices):
+            templist[j] = {'label': train_data.labels['X'][i]}
 
-        self.sorted_inputs.sort(key=lambda x: abs(x['partcorr']), reverse=True)
+        for i in self.input_distribution.input_dicts:
+            templist[i['index']].update(i)
+        for i in self.output_distribution.input_dicts:
+            templist[i['index']].update(i)
+
+        self.sorted_inputs = [x for x in templist if x is not None]
+        self.sorted_inputs.sort(key=lambda y: abs(y['partcorr']), reverse=True)
+        self.graphs_made = True
+
+
+class FactorAnalysis(object):
+    """Factor analysis"""
+
+    def __init__(self, sklearn_fac):
+        self.graphs_made = False
+        self.sklearn_fac = sklearn_fac
+        self.shortdescrip = "Factor Analysis"
+        self.report_id = 5
+        self.data_size = None
+
+    def conditional_sample(self, data):
+        pass
+
+    def llh(self, data):
+        return np.sum(self.sklearn_fac.score(data.arrays['X']))
+
+    def make_graphs(self, train_data, outdir):
+        print self.sklearn_fac.components_
+        newdata = self.sklearn_fac.transform(train_data.arrays['X'])
+        gr.fa_plots(newdata, outdir)
+        gr.fa_heatmap(self.sklearn_fac.components_, train_data.labels['X'], outdir)
+        gr.scatterplot_matrix_no_ellipse(train_data.arrays['X'], train_data.labels['X'], outdir)
+        self.graphs_made = True
 
 
 ##############################################
@@ -405,7 +466,7 @@ class MoGLearner(object):
         best_model = None
         best_bic = None
         for n_components in range(2, 11, 1):
-            sk_learner = GMM(n_components=n_components, n_iter=250, n_init=5)
+            sk_learner = GMM(n_components=n_components, n_iter=250, n_init=5, min_covar=0.00001)
             sk_learner.fit(self.data.arrays['X'])
             bic = sk_learner.bic(self.data.arrays['X'])
             # print BIC
@@ -462,7 +523,7 @@ class SKLinearModel(SKLearnModelLearner):
 
     def fit(self):
         super(SKLinearModel, self).fit()
-        self.conditional_distributions[0].shortdescrip = "Least-squares Regression"
+        self.conditional_distributions[0].shortdescrip = "Least-squares Linear Regression"
 
 
 class SKLASSO(SKLearnModelLearner):
@@ -527,7 +588,34 @@ class RegressionLearner(object):
                 best_distribution.data_size = self.data.arrays['X'].shape[0]
 
         self.conditional_distributions = [best_distribution]
-        best_distribution.shortdescrip = best_distribution.output_distribution.shortdescrip
+        best_distribution.shortdescrip = best_distribution.output_distribution.shortdescrip + ' with ' + \
+            best_distribution.input_distribution.shortdescrip
+
+    @staticmethod
+    def generate_descriptions():
+        # I can be replaced with a generic description routine - e.g. average predictive comparisons
+        raise RuntimeError('Description not implemented')
+
+
+class FALearner(object):
+    """
+    Fits mixture of Gaussians to data
+    """
+
+    def __init__(self):
+        self.data = None
+        self.conditional_distributions = []
+
+    def load_data(self, data):
+        assert isinstance(data, XSeqDataSet)
+        self.data = data
+
+    def fit(self):
+        model = sklearn.decomposition.FactorAnalysis()
+        model.fit(self.data.arrays['X'])
+
+        self.conditional_distributions = [FactorAnalysis(model)]
+        self.conditional_distributions[0].data_size = self.data.arrays['X'].shape[0]
 
     @staticmethod
     def generate_descriptions():
