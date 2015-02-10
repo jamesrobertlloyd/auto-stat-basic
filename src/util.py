@@ -15,16 +15,22 @@ import re
 
 
 def make_string_list_unique(string_list):
-    """Convert a list of strings into a list of unique strings (after removing spaces)"""
-    unique_list = []
-    while len(string_list) > 0:
-        next_string = string_list[0]
-        if re.sub(' ', '', next_string) in [re.sub(' ', '', el) for el in unique_list]:
-            string_list[0] += ' (again)'
-        else:
-            unique_list.append(next_string)
-            string_list = string_list[1:]
-    return unique_list
+    """Convert a list of strings into a list of unique strings, in-place. Also replaces blanks with 'blank'"""
+    seenset = set()
+
+    for ind, x in enumerate(string_list):
+        i = 1
+        newx = ' '.join(x.split())  # converts all whitespace to space
+        newx = re.sub("[^0-9a-zA-Z_\-()+*/?&#@'{}%!$;. ]", "", newx)
+
+        if newx == '':
+            newx = 'blank'
+
+        while newx in seenset:
+            newx = '{} ({})'.format(x, i)
+            i += 1
+        seenset.add(newx)
+        string_list[ind] = newx
 
 
 def BIC(dist, data, n_params):

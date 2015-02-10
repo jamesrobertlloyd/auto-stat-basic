@@ -78,22 +78,18 @@ class XSeqDataSet(DataSet):
     def load_from_file(self, fname):
         # Tidy up new lines if necessary
         with open(fname, 'rU') as data_file:  # Opening up in universal new line mode
-            contents = data_file.read()
-        with open(fname, 'w') as data_file:
-            data_file.write(contents)
+            labels = [label.strip() for label in data_file.readline().split(',')]
+            util.make_string_list_unique(labels)
+            self.labels['X'] = labels
+
         # Load numeric data - assume first row is header, comma delimited
         data = np.loadtxt(fname, delimiter=',', skiprows=1, ndmin=2)
         self.arrays['X'] = data
-        # Load labels
-        with open(fname, 'r') as data_file:
-            labels = [re.sub('[.]', '', label) for label in data_file.readline().strip().split(',')]
-            labels = [label if (not label == '') else '(blank)' for label in labels]
-            if not len(labels) > 100:
-                #### FIXME - this is a quick hack to guard against a newline bug
-                labels = util.make_string_list_unique(labels)
-            self.labels['X'] = labels
         self.name = os.path.splitext(os.path.split(fname)[-1])[0]
         self.path = os.path.split(fname)[0]
+
+        #with open(fname, 'w') as data_file:
+        #    np.savetxt(data_file, data, delimiter=',', header=','.join(labels), fmt='%.20g', comments='')
 
     def variable_subsets(self, subset):
         """Subsets the variables and returns the data set"""
